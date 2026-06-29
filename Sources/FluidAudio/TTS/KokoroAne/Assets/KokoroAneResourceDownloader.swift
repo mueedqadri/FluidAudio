@@ -17,8 +17,32 @@ public enum KokoroAneResourceDownloader {
     public static func ensureModels(
         variant: KokoroAneVariant = .english,
         directory: URL? = nil,
+        assetSource: KokoroAssetSource? = nil,
         progressHandler: DownloadUtils.ProgressHandler? = nil
     ) async throws -> URL {
+        if let assetSource {
+            let relativeRoot = variant.repo.subPath ?? ""
+            let repoDir = assetSource.localURL(for: relativeRoot)
+            let required: Set<String>
+            switch variant {
+            case .english:
+                required = ModelNames.KokoroAne.requiredModels
+            case .mandarin:
+                required = ModelNames.KokoroAne.requiredModelsZh
+            case .japanese:
+                required = ModelNames.KokoroAne.requiredModelsJa
+            }
+            if let missing = required.first(where: { name in
+                !FileManager.default.fileExists(
+                    atPath: repoDir.appendingPathComponent(name).path)
+            }) {
+                throw KokoroAssetSourceError.missingLocalAsset(
+                    relativeRoot.isEmpty ? missing : "\(relativeRoot)/\(missing)"
+                )
+            }
+            return repoDir
+        }
+
         let modelsDirectory = try directory ?? defaultModelsDirectory()
         let repo = variant.repo
         let repoDir = modelsDirectory.appendingPathComponent(repo.folderName)
@@ -256,8 +280,19 @@ public enum KokoroAneResourceDownloader {
     /// `G2PModelError.vocabLoadFailed`.
     public static func ensureG2PAssets(
         directory: URL? = nil,
+        assetSource: KokoroAssetSource? = nil,
         progressHandler: DownloadUtils.ProgressHandler? = nil
     ) async throws {
+        if let assetSource {
+            if let missing = ModelNames.G2P.requiredModels.first(where: { name in
+                !FileManager.default.fileExists(
+                    atPath: assetSource.localURL(for: name).path)
+            }) {
+                throw KokoroAssetSourceError.missingLocalAsset(missing)
+            }
+            return
+        }
+
         let modelsDirectory = try directory ?? defaultModelsDirectory()
         let kokoroDir = modelsDirectory.appendingPathComponent(Repo.kokoro.folderName)
         let allPresent = ModelNames.G2P.requiredModels.allSatisfy { name in
@@ -287,10 +322,19 @@ public enum KokoroAneResourceDownloader {
     /// quality booster (Misaki weak forms for function words, issue
     /// #691), not a hard dependency.
     public static func ensureEnglishLexicon(
-        directory: URL? = nil
+        directory: URL? = nil,
+        assetSource: KokoroAssetSource? = nil
     ) async -> URL? {
         let filename = "us_lexicon_cache.json"
         do {
+            if let assetSource {
+                let localURL = assetSource.localURL(for: filename)
+                guard FileManager.default.fileExists(atPath: localURL.path) else {
+                    throw KokoroAssetSourceError.missingLocalAsset(filename)
+                }
+                return assetSource.localRoot
+            }
+
             let modelsDirectory = try directory ?? defaultModelsDirectory()
             let kokoroDir = modelsDirectory.appendingPathComponent(Repo.kokoro.folderName)
             try FileManager.default.createDirectory(
@@ -328,7 +372,8 @@ public enum KokoroAneResourceDownloader {
     public static func ensureVoicePack(
         _ voice: String,
         repoDirectory: URL,
-        variant: KokoroAneVariant = .english
+        variant: KokoroAneVariant = .english,
+        assetSource: KokoroAssetSource? = nil
     ) async throws -> URL {
         let sanitized = voice.filter { $0.isLetter || $0.isNumber || $0 == "_" }
         guard !sanitized.isEmpty else {
@@ -340,6 +385,14 @@ public enum KokoroAneResourceDownloader {
 
         if FileManager.default.fileExists(atPath: localURL.path) {
             return localURL
+        }
+
+        if let assetSource, !assetSource.allowsNetworkFallback {
+            let variantRoot = variant.repo.subPath ?? ""
+            let sourcePath = variantRoot.isEmpty
+                ? relativePath
+                : "\(variantRoot)/\(relativePath)"
+            throw KokoroAssetSourceError.missingLocalAsset(sourcePath)
         }
 
         // Ensure the parent dir (`voices/`) exists for Mandarin voices that
@@ -358,7 +411,12 @@ public enum KokoroAneResourceDownloader {
         } else {
             remoteFilePath = relativePath
         }
-        let remoteURL = try ModelRegistry.resolveModel(repo.remotePath, remoteFilePath)
+        let remoteURL: URL
+        if let assetSource {
+            remoteURL = try assetSource.remoteURL(for: remoteFilePath)
+        } else {
+            remoteURL = try ModelRegistry.resolveModel(repo.remotePath, remoteFilePath)
+        }
         let data = try await AssetDownloader.fetchData(
             from: remoteURL,
             description: "\(sanitized) voice pack",

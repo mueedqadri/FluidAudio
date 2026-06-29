@@ -53,8 +53,12 @@ public enum ModelRegistry {
     }
 
     /// Construct download URL for a model file
-    public static func resolveModel(_ repoPath: String, _ filePath: String) throws -> URL {
-        let urlString = "\(baseURL)/\(repoPath)/resolve/main/\(filePath)"
+    public static func resolveModel(
+        _ repoPath: String,
+        _ filePath: String,
+        revision: String = "main"
+    ) throws -> URL {
+        let urlString = "\(baseURL)/\(repoPath)/resolve/\(revision)/\(filePath)"
         guard let url = URL(string: urlString) else {
             throw Error.invalidURL(urlString)
         }

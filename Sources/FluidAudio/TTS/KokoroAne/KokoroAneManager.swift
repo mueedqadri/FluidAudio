@@ -40,6 +40,8 @@ public actor KokoroAneManager {
     private let logger = AppLogger(category: "KokoroAneManager")
     private let store: KokoroAneModelStore
     private let variant: KokoroAneVariant
+    private let assetSource: KokoroAssetSource?
+    private let g2pModel: G2PModel
     private var defaultVoice: String
 
     /// English frontend: Misaki lexicon + custom overrides + punctuation
@@ -55,14 +57,21 @@ public actor KokoroAneManager {
         defaultVoice: String? = nil,
         directory: URL? = nil,
         computeUnits: KokoroAneComputeUnits = .default,
-        modelStore: KokoroAneModelStore? = nil
+        modelStore: KokoroAneModelStore? = nil,
+        assetSource: KokoroAssetSource? = nil
     ) {
         self.variant = variant
         self.defaultVoice = defaultVoice ?? variant.defaultVoice
+        self.assetSource = assetSource
+        self.g2pModel = G2PModel(assetRoot: assetSource?.localRoot)
         self.store =
             modelStore
             ?? KokoroAneModelStore(
-                directory: directory, computeUnits: computeUnits, variant: variant)
+                directory: directory,
+                computeUnits: computeUnits,
+                variant: variant,
+                assetSource: assetSource
+            )
     }
 
     // MARK: - Lifecycle
@@ -90,12 +99,18 @@ public actor KokoroAneManager {
         // vocabLoadFailed. The KokoroAne mlmodelc chain itself does respect
         // `directory` (via store), only the shared G2P assets are pinned.
         if variant == .english {
-            try await KokoroAneResourceDownloader.ensureG2PAssets(directory: nil)
-            try await G2PModel.shared.ensureModelsAvailable()
+            try await KokoroAneResourceDownloader.ensureG2PAssets(
+                directory: nil,
+                assetSource: assetSource
+            )
+            try await g2pModel.ensureModelsAvailable()
             // Best-effort pre-fetch of the Misaki lexicon cache (weak
             // function-word forms, issue #691). Missing lexicon degrades
             // to the BART-G2P-only path rather than failing initialize.
-            _ = await KokoroAneResourceDownloader.ensureEnglishLexicon(directory: nil)
+            _ = await KokoroAneResourceDownloader.ensureEnglishLexicon(
+                directory: nil,
+                assetSource: assetSource
+            )
         }
         if let voices = preloadVoices {
             for voice in voices {
@@ -323,8 +338,9 @@ public actor KokoroAneManager {
     private func phonemize(text: String) async throws -> String {
         let normalized = EnglishTextNormalizer.normalize(text)
         let phonemizer = await ensureEnglishPhonemizer()
+        let g2pModel = self.g2pModel
         return try await phonemizer.phonemize(normalized) { word in
-            try await G2PModel.shared.phonemize(word: word)
+            try await g2pModel.phonemize(word: word)
         }
     }
 
@@ -349,7 +365,10 @@ public actor KokoroAneManager {
             punctuation = Set(
                 vocab.map.keys.filter { !$0.isLetter && !$0.isNumber && !$0.isWhitespace })
 
-            if let kokoroDir = await KokoroAneResourceDownloader.ensureEnglishLexicon(directory: nil) {
+            if let kokoroDir = await KokoroAneResourceDownloader.ensureEnglishLexicon(
+                directory: nil,
+                assetSource: assetSource
+            ) {
                 let allowedTokens = Set(vocab.map.keys.map(String.init))
                 try await englishLexiconCache.ensureLoaded(
                     kokoroDirectory: kokoroDir, allowedTokens: allowedTokens)

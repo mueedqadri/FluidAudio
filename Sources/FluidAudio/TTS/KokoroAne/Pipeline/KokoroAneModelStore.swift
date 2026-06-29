@@ -146,15 +146,18 @@ public actor KokoroAneModelStore {
     private let directory: URL?
     private let computeUnits: KokoroAneComputeUnits
     private let variant: KokoroAneVariant
+    private let assetSource: KokoroAssetSource?
 
     public init(
         directory: URL? = nil,
         computeUnits: KokoroAneComputeUnits = .default,
-        variant: KokoroAneVariant = .english
+        variant: KokoroAneVariant = .english,
+        assetSource: KokoroAssetSource? = nil
     ) {
         self.directory = directory
         self.computeUnits = computeUnits
         self.variant = variant
+        self.assetSource = assetSource
     }
 
     /// Download (if missing), load all 7 mlmodelcs, parse vocab + default voice.
@@ -167,7 +170,10 @@ public actor KokoroAneModelStore {
         guard models.isEmpty else { return }
 
         let repoDir = try await KokoroAneResourceDownloader.ensureModels(
-            variant: variant, directory: directory)
+            variant: variant,
+            directory: directory,
+            assetSource: assetSource
+        )
 
         logger.info("Loading 7 KokoroAne CoreML models from \(repoDir.path)...")
         let loadStart = Date()
@@ -227,7 +233,11 @@ public actor KokoroAneModelStore {
             throw KokoroAneError.modelNotLoaded("voice pack (repo not initialized)")
         }
         let url = try await KokoroAneResourceDownloader.ensureVoicePack(
-            voice, repoDirectory: repoDir, variant: variant)
+            voice,
+            repoDirectory: repoDir,
+            variant: variant,
+            assetSource: assetSource
+        )
         let pack = try KokoroAneVoicePack.load(from: url)
         voicePacks[voice] = pack
         logger.info("Loaded voice pack '\(voice)'")

@@ -66,7 +66,7 @@ struct KokoroAneEnglishPhonemizer: Sendable {
     ///   empty or nothing could be resolved.
     func phonemize(
         _ text: String,
-        fallback: (String) async throws -> [String]?
+        fallback: @Sendable (String) async throws -> [String]?
     ) async throws -> String {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
@@ -109,7 +109,7 @@ struct KokoroAneEnglishPhonemizer: Sendable {
 
     private func resolveWord(
         _ word: String,
-        fallback: (String) async throws -> [String]?
+        fallback: @Sendable (String) async throws -> [String]?
     ) async throws -> String? {
         let normalized = Self.normalizeKey(word)
 

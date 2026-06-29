@@ -26,6 +26,7 @@ actor G2PModel {
 
     static let shared = G2PModel()
     private let logger = AppLogger(subsystem: "com.fluidaudio.tts", category: "G2PModel")
+    private let assetRoot: URL?
 
     // Vocab tables (loaded once)
     private var graphemeToId: [Character: Int]?
@@ -38,7 +39,9 @@ actor G2PModel {
     private var encoder: MLModel?
     private var decoder: MLModel?
 
-    private init() {}
+    init(assetRoot: URL? = nil) {
+        self.assetRoot = assetRoot
+    }
 
     func phonemize(word: String) throws -> [String]? {
         do {
@@ -165,9 +168,14 @@ actor G2PModel {
     private func loadIfNeeded() throws {
         if graphemeToId != nil && encoder != nil && decoder != nil { return }
 
-        let kokoroDir = try TtsCacheDirectory.ensure()
-            .appendingPathComponent("Models")
-            .appendingPathComponent(Repo.kokoro.folderName)
+        let kokoroDir: URL
+        if let assetRoot {
+            kokoroDir = assetRoot
+        } else {
+            kokoroDir = try TtsCacheDirectory.ensure()
+                .appendingPathComponent("Models")
+                .appendingPathComponent(Repo.kokoro.folderName)
+        }
 
         // Load g2p_vocab.json from cache directory
         let vocabURL = kokoroDir.appendingPathComponent(ModelNames.G2P.vocabularyFile)
