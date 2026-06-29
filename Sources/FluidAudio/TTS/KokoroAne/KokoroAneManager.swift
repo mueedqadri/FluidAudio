@@ -322,8 +322,17 @@ public actor KokoroAneManager {
         let normalized = EnglishTextNormalizer.normalize(text)
         let phonemizer = await ensureEnglishPhonemizer()
         return try await phonemizer.phonemizeSegments(normalized) { word in
-            try await G2PModel.shared.phonemize(word: word)
+            try await self.englishG2PPhonemes(for: word)
         }
+    }
+
+    /// Resolve an English OOV word through this manager's G2P instance.
+    ///
+    /// Keeping this hop explicit is important for custom ``KokoroAssetSource``
+    /// roots: the process-wide `G2PModel.shared` only knows FluidAudio's
+    /// default cache and cannot see assets installed by an embedding app.
+    func englishG2PPhonemes(for word: String) async throws -> [String]? {
+        try await g2pModel.phonemize(word: word)
     }
 
     /// Greedily group segments so each chunk's joined phoneme string (segments
