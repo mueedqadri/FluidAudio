@@ -30,6 +30,24 @@ public struct KokoroAneStageTimings: Sendable, Equatable {
     }
 }
 
+/// Audio-time interval for one source word, derived from the duration model.
+/// Surfaced only by the English text API (`synthesizeDetailed(text:)`), which
+/// retains the per-word phoneme segmentation needed to attribute frames to the
+/// surface word. `nil` `wordTimings` on a result means no per-word timing was
+/// available (phoneme-only input, or a variant without word segmentation).
+public struct KokoroAneWordTiming: Sendable, Equatable {
+    /// The surface word (post-normalization) these frames were spoken from.
+    public let word: String
+    public let startSec: Double
+    public let endSec: Double
+
+    public init(word: String, startSec: Double, endSec: Double) {
+        self.word = word
+        self.startSec = startSec
+        self.endSec = max(startSec, endSec)
+    }
+}
+
 /// Detailed result of a `KokoroAneManager.synthesizeDetailed` call.
 public struct KokoroAneSynthesisResult: Sendable {
     /// 24 kHz mono fp32 PCM samples (raw, not WAV-wrapped).
@@ -42,6 +60,14 @@ public struct KokoroAneSynthesisResult: Sendable {
     public let acousticFrames: Int
     /// Per-stage timings.
     public let timings: KokoroAneStageTimings
+    /// Per-encoder-token acoustic frame counts (the duration model's `pred_dur`,
+    /// 1:1 with the input ids incl. BOS/EOS). `prefix-sum × durationSeconds /
+    /// acousticFrames` converts a token's frame span to audio seconds.
+    /// Concatenated in order across chunks. Empty when not surfaced.
+    public let perTokenFrames: [Int32]
+    /// Per-source-word audio intervals, when the frontend retained word
+    /// segmentation (English text API). `nil` otherwise.
+    public let wordTimings: [KokoroAneWordTiming]?
 
     /// Convenience: audio duration in seconds.
     public var durationSeconds: Double {
@@ -53,13 +79,17 @@ public struct KokoroAneSynthesisResult: Sendable {
         sampleRate: Int,
         encoderTokens: Int,
         acousticFrames: Int,
-        timings: KokoroAneStageTimings
+        timings: KokoroAneStageTimings,
+        perTokenFrames: [Int32] = [],
+        wordTimings: [KokoroAneWordTiming]? = nil
     ) {
         self.samples = samples
         self.sampleRate = sampleRate
         self.encoderTokens = encoderTokens
         self.acousticFrames = acousticFrames
         self.timings = timings
+        self.perTokenFrames = perTokenFrames
+        self.wordTimings = wordTimings
     }
 }
 
