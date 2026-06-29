@@ -194,6 +194,14 @@ public actor KokoroAneManager {
         voice: String? = nil,
         speed: Float = KokoroAneConstants.defaultSpeed
     ) async throws -> KokoroAneSynthesisResult {
+        // English retains per-word phoneme segmentation, so it can attribute the
+        // duration model's frames back to each source word (`wordTimings`).
+        // Mandarin/Japanese have no word-segmented frontend here, so they keep
+        // the flat-string path (no per-word timing).
+        if variant == .english {
+            return try await synthesizeEnglishWithTimings(text: text, voice: voice, speed: speed)
+        }
+
         let resolved = try await phonemes(for: text)
 
         // High-level text API owns chunking: if the resolved phoneme string
@@ -223,6 +231,7 @@ public actor KokoroAneManager {
         var sampleRate = KokoroAneConstants.sampleRate
         var encoderTokens = 0
         var acousticFrames = 0
+        var perTokenFrames: [Int32] = []
         var timings = KokoroAneStageTimings()
 
         for chunk in chunks {
@@ -231,6 +240,7 @@ public actor KokoroAneManager {
             sampleRate = result.sampleRate
             encoderTokens += result.encoderTokens
             acousticFrames += result.acousticFrames
+            perTokenFrames.append(contentsOf: result.perTokenFrames)
             timings.add(result.timings)
         }
 
@@ -239,8 +249,166 @@ public actor KokoroAneManager {
             sampleRate: sampleRate,
             encoderTokens: encoderTokens,
             acousticFrames: acousticFrames,
-            timings: timings
+            timings: timings,
+            perTokenFrames: perTokenFrames
         )
+    }
+
+    // MARK: - English word-timed synthesis
+
+    /// English text → samples + `wordTimings`. Resolves per-word phoneme
+    /// segments, groups them into ≤cap chunks at word boundaries, synthesizes
+    /// each, and attributes the duration model's frames back to each source
+    /// word (offsetting by the audio already produced by earlier chunks).
+    private func synthesizeEnglishWithTimings(
+        text: String,
+        voice: String?,
+        speed: Float
+    ) async throws -> KokoroAneSynthesisResult {
+        let segments = try await englishSegments(for: text)
+        guard !segments.isEmpty else {
+            throw KokoroAneError.inputProcessingFailed(
+                "produced no phonemes for input '\(text.trimmingCharacters(in: .whitespacesAndNewlines))'")
+        }
+        let vocab = try await store.vocabulary()
+        let chunks = Self.groupSegmentsIntoChunks(
+            segments, maxLength: KokoroAneConstants.maxPhonemeLength)
+
+        var samples: [Float] = []
+        var sampleRate = KokoroAneConstants.sampleRate
+        var encoderTokens = 0
+        var acousticFrames = 0
+        var perTokenFrames: [Int32] = []
+        var timings = KokoroAneStageTimings()
+        var wordTimings: [KokoroAneWordTiming] = []
+        var audioOffsetSec = 0.0
+
+        for chunkSegments in chunks {
+            let phonemeString = chunkSegments.map(\.phonemes).joined(separator: " ")
+            let result = try await runChain(phonemes: phonemeString, voice: voice, speed: speed)
+
+            wordTimings.append(
+                contentsOf: Self.wordTimings(
+                    segments: chunkSegments,
+                    perTokenFrames: result.perTokenFrames,
+                    durationSeconds: result.durationSeconds,
+                    offsetSeconds: audioOffsetSec,
+                    vocab: vocab))
+
+            samples.append(contentsOf: result.samples)
+            sampleRate = result.sampleRate
+            encoderTokens += result.encoderTokens
+            acousticFrames += result.acousticFrames
+            perTokenFrames.append(contentsOf: result.perTokenFrames)
+            timings.add(result.timings)
+            audioOffsetSec += result.durationSeconds
+        }
+
+        return KokoroAneSynthesisResult(
+            samples: samples,
+            sampleRate: sampleRate,
+            encoderTokens: encoderTokens,
+            acousticFrames: acousticFrames,
+            timings: timings,
+            perTokenFrames: perTokenFrames,
+            wordTimings: wordTimings)
+    }
+
+    /// English text → per-word phoneme segments (normalization + lexicon/G2P) —
+    /// the structured form of `phonemes(for:)`.
+    private func englishSegments(
+        for text: String
+    ) async throws -> [KokoroAneEnglishPhonemizer.PhonemeSegment] {
+        let normalized = EnglishTextNormalizer.normalize(text)
+        let phonemizer = await ensureEnglishPhonemizer()
+        return try await phonemizer.phonemizeSegments(normalized) { word in
+            try await G2PModel.shared.phonemize(word: word)
+        }
+    }
+
+    /// Greedily group segments so each chunk's joined phoneme string (segments
+    /// + single-space separators) stays within `maxLength`. Splits only at word
+    /// boundaries; a lone segment longer than the cap becomes its own chunk and
+    /// `runChain` throws `phonemeSequenceTooLong`, matching the flat path.
+    static func groupSegmentsIntoChunks(
+        _ segments: [KokoroAneEnglishPhonemizer.PhonemeSegment],
+        maxLength: Int
+    ) -> [[KokoroAneEnglishPhonemizer.PhonemeSegment]] {
+        var chunks: [[KokoroAneEnglishPhonemizer.PhonemeSegment]] = []
+        var current: [KokoroAneEnglishPhonemizer.PhonemeSegment] = []
+        var currentLength = 0  // joined length of `current`
+
+        for segment in segments {
+            let addition = current.isEmpty
+                ? segment.phonemes.count
+                : segment.phonemes.count + 1  // +1 for the joining space
+            if !current.isEmpty, currentLength + addition > maxLength {
+                chunks.append(current)
+                current = [segment]
+                currentLength = segment.phonemes.count
+            } else {
+                current.append(segment)
+                currentLength += addition
+            }
+        }
+        if !current.isEmpty { chunks.append(current) }
+        return chunks
+    }
+
+    /// Attribute one chunk's per-token frame durations to its source words.
+    ///
+    /// `perTokenFrames` is 1:1 with the chunk's input ids: `[BOS, …phonemes,
+    /// EOS]`. Walking the chunk's joined phoneme string in the same order
+    /// `KokoroAneVocab.encode` does (each in-vocab character → one token,
+    /// out-of-vocab silently dropped; a single space between segments → its own
+    /// token when the vocab maps space), we recover each segment's token range
+    /// and sum its frames. Frame offsets convert to seconds via the chunk's
+    /// audio duration. Segments with an empty `word` (leading punctuation) or
+    /// zero spoken tokens are skipped — they aren't words to highlight.
+    static func wordTimings(
+        segments: [KokoroAneEnglishPhonemizer.PhonemeSegment],
+        perTokenFrames: [Int32],
+        durationSeconds: Double,
+        offsetSeconds: Double,
+        vocab: KokoroAneVocab
+    ) -> [KokoroAneWordTiming] {
+        guard !perTokenFrames.isEmpty else { return [] }
+
+        // Prefix sums over frames: prefix[i] = frames before token i.
+        var prefix = [Int](repeating: 0, count: perTokenFrames.count + 1)
+        for i in 0..<perTokenFrames.count {
+            prefix[i + 1] = prefix[i] + Int(perTokenFrames[i])
+        }
+        let totalFrames = prefix[perTokenFrames.count]
+        guard totalFrames > 0 else { return [] }
+        let secPerFrame = durationSeconds / Double(totalFrames)
+        let spaceIsToken = vocab.map[" "] != nil
+
+        var timings: [KokoroAneWordTiming] = []
+        var tokenIndex = 1  // token 0 is BOS
+
+        for (i, segment) in segments.enumerated() {
+            let startToken = tokenIndex
+            for ch in segment.phonemes where vocab.map[ch] != nil {
+                tokenIndex += 1
+            }
+            let endToken = tokenIndex  // exclusive
+
+            if !segment.word.isEmpty, endToken > startToken,
+                endToken < prefix.count {
+                let startSec = offsetSeconds + Double(prefix[startToken]) * secPerFrame
+                let endSec = offsetSeconds + Double(prefix[endToken]) * secPerFrame
+                timings.append(
+                    KokoroAneWordTiming(word: segment.word, startSec: startSec, endSec: endSec))
+            }
+
+            // Single space separator between segments consumes one token when
+            // the vocab maps it; its frames fall between words (a gap).
+            if spaceIsToken, i < segments.count - 1 {
+                tokenIndex += 1
+            }
+        }
+        return timings
     }
 
     /// Resolve the exact phoneme string ``synthesize(text:voice:speed:)``

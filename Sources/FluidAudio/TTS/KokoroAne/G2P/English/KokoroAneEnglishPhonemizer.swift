@@ -55,6 +55,16 @@ struct KokoroAneEnglishPhonemizer: Sendable {
         self.allowedPunctuation = allowedPunctuation
     }
 
+    /// One resolved word and the IPA it produced. Kept punctuation is appended
+    /// to the preceding word's `phonemes` (matching the flat-string shape), so
+    /// a segment's `phonemes` may carry a trailing prosody/pause token. A
+    /// leading punctuation run with no preceding word yields a segment with an
+    /// empty `word`.
+    struct PhonemeSegment: Sendable, Equatable {
+        let word: String
+        var phonemes: String
+    }
+
     /// Convert text to a Misaki-style IPA string. Words are joined with
     /// single spaces; kept punctuation attaches to the preceding word
     /// (`"Hello, world!"` → `"həlˈO, wˈɜɹld!"` shape).
@@ -68,12 +78,30 @@ struct KokoroAneEnglishPhonemizer: Sendable {
         _ text: String,
         fallback: @Sendable (String) async throws -> [String]?
     ) async throws -> String {
+        let segments = try await phonemizeSegments(text, fallback: fallback)
+        let joined = segments.map(\.phonemes).joined(separator: " ")
+        if joined.isEmpty {
+            throw KokoroAneError.inputProcessingFailed(
+                "produced no phonemes for input '\(text.trimmingCharacters(in: .whitespacesAndNewlines))'")
+        }
+        return joined
+    }
+
+    /// Same resolution as `phonemize`, but returns one `PhonemeSegment` per
+    /// resolved source word instead of collapsing to a flat string. The flat
+    /// string is exactly `segments.map(\.phonemes).joined(separator: " ")`, so
+    /// callers can recover the per-word phoneme spans needed for word-level
+    /// timing. Throws on empty input.
+    func phonemizeSegments(
+        _ text: String,
+        fallback: @Sendable (String) async throws -> [String]?
+    ) async throws -> [PhonemeSegment] {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             throw KokoroAneError.inputProcessingFailed("(empty input)")
         }
 
-        var parts: [String] = []
+        var segments: [PhonemeSegment] = []
 
         for token in Self.splitWords(trimmed) {
             if token.isEmpty { continue }
@@ -84,25 +112,20 @@ struct KokoroAneEnglishPhonemizer: Sendable {
                 // Attach to the preceding word — Kokoro's vocab encodes
                 // punctuation as its own prosody token, but Misaki output
                 // never puts a space before it.
-                if parts.isEmpty {
-                    parts.append(String(ch))
+                if segments.isEmpty {
+                    segments.append(PhonemeSegment(word: "", phonemes: String(ch)))
                 } else {
-                    parts[parts.count - 1].append(ch)
+                    segments[segments.count - 1].phonemes.append(ch)
                 }
                 continue
             }
 
             if let ipa = try await resolveWord(token, fallback: fallback) {
-                parts.append(ipa)
+                segments.append(PhonemeSegment(word: token, phonemes: ipa))
             }
         }
 
-        let joined = parts.joined(separator: " ")
-        if joined.isEmpty {
-            throw KokoroAneError.inputProcessingFailed(
-                "produced no phonemes for input '\(trimmed)'")
-        }
-        return joined
+        return segments
     }
 
     // MARK: - Word resolution
