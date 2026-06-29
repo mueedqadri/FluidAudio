@@ -203,7 +203,9 @@ struct KokoroAneEnglishPhonemizer: Sendable {
     /// Lowercase + strip non-letter/digit/apostrophe chars so we hit the
     /// same Misaki cache entries the preprocessor wrote.
     static func normalizeKey(_ word: String) -> String {
-        let lowered = word.lowercased()
+        let lowered = String(word.lowercased().map { ch in
+            phoneticApostropheCharacters.contains(ch) ? "'" : ch
+        })
         let allowedSet = CharacterSet.letters.union(.decimalDigits)
             .union(CharacterSet(charactersIn: "'"))
         let filtered = lowered.unicodeScalars.filter { allowedSet.contains($0) }
@@ -235,15 +237,15 @@ struct KokoroAneEnglishPhonemizer: Sendable {
             let ch = text[index]
             if ch.isWhitespace {
                 flushCurrent()
-            } else if ch == "'" {
+            } else if phoneticApostropheCharacters.contains(ch) {
                 let nextIndex = text.index(after: index)
                 let nextIsWord =
                     nextIndex < text.endIndex
                     && (text[nextIndex].isLetter || text[nextIndex].isNumber)
                 if !current.isEmpty && nextIsWord {
-                    current.append(ch)
+                    current.append("'")
                 } else if current.isEmpty && Self.startsKnownLeadingApostropheWord(in: text, at: index) {
-                    current.append(ch)
+                    current.append("'")
                 } else {
                     flushCurrent()
                     out.append(String(ch))

@@ -51,7 +51,7 @@ struct SSMLParsedTag: Sendable {
 
 /// Apostrophe characters that should be treated as part of a word
 /// Used by both SSML processing and text preprocessing for consistent word boundary detection
-let phoneticApostropheCharacters: Set<Character> = ["'", "'", "ʼ", "‛", "‵", "′"]
+let phoneticApostropheCharacters: Set<Character> = ["'", "’", "ʼ", "‛", "‵", "′"]
 
 /// Check if a character is an emoji
 /// Used by both SSML processing and text preprocessing for consistent word boundary detection

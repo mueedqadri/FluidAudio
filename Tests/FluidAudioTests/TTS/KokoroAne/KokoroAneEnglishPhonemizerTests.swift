@@ -218,6 +218,27 @@ final class KokoroAneEnglishPhonemizerTests: XCTestCase {
         XCTAssertEqual(result, "dˈOnt")
     }
 
+    func testTypographicApostropheWordsUseAsciiLexiconEntry() async throws {
+        let phonemizer = KokoroAneEnglishPhonemizer(
+            wordToPhonemes: ["don't": ["d", "ˈ", "O", "n", "t"]],
+            allowedPunctuation: punctuation
+        )
+        let result = try await phonemizer.phonemize("don’t") { _ in nil }
+        XCTAssertEqual(result, "dˈOnt")
+    }
+
+    func testTypographicPossessiveStaysOneWord() async throws {
+        let phonemizer = KokoroAneEnglishPhonemizer(
+            wordToPhonemes: ["reader's": ["ɹ", "ˈ", "i", "d", "ɚ", "z"]],
+            allowedPunctuation: punctuation
+        )
+        let segments = try await phonemizer.phonemizeSegments("reader’s voice") { word in
+            word == "voice" ? ["v", "ˈ", "ɔ", "ɪ", "s"] : nil
+        }
+        XCTAssertEqual(segments.map(\.word), ["reader's", "voice"])
+        XCTAssertEqual(segments.map(\.phonemes), ["ɹˈidɚz", "vˈɔɪs"])
+    }
+
     func testSingleQuotesAreDelimitersNotPartOfLexiconKey() async throws {
         let recorder = FallbackRecorder()
         let result = try await makePhonemizer().phonemize("'to'") { await recorder.g2p($0) }
