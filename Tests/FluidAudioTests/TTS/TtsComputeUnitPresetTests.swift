@@ -94,6 +94,16 @@ final class TtsComputeUnitPresetTests: XCTestCase {
         }
     }
 
+    func testKokoroAnePostAlbertCpuOnlyPinsPostAlbertToCPU() {
+        let cu = KokoroAneComputeUnits.postAlbertCpu
+        for stage in KokoroAneStage.allCases {
+            let expected: MLComputeUnits = stage == .postAlbert ? .cpuOnly : .cpuAndNeuralEngine
+            XCTAssertEqual(
+                cu.units(for: stage), expected,
+                "unexpected compute placement for stage \(stage)")
+        }
+    }
+
     func testKokoroAnePreset_cpuOnlyForcesEveryStageToCPU() {
         let cu = KokoroAneComputeUnits(preset: .cpuOnly)
         for stage in KokoroAneStage.allCases {

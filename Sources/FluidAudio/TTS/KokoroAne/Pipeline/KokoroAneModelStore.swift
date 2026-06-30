@@ -69,6 +69,19 @@ public struct KokoroAneComputeUnits: Sendable, Equatable {
         tail: .cpuAndNeuralEngine
     )
 
+    /// ANE/CPU placement with PostAlbert pinned to CPU.
+    ///
+    /// PostAlbert's flexible-shape BiLSTM graph can trigger runaway process
+    /// memory when Core ML executes it with ANE eligibility after sustained,
+    /// varied sequence lengths. Keeping only this stage on CPU avoids that
+    /// runtime failure while preserving ANE placement for the heavier stages.
+    public static let postAlbertCpu = KokoroAneComputeUnits(
+        albert: .cpuAndNeuralEngine, postAlbert: .cpuOnly,
+        alignment: .cpuAndNeuralEngine, prosody: .cpuAndNeuralEngine,
+        noise: .cpuAndNeuralEngine, vocoder: .cpuAndNeuralEngine,
+        tail: .cpuAndNeuralEngine
+    )
+
     /// CPU-only (no ANE, no GPU). Slowest but most predictable; useful
     /// as a debugging / fallback baseline.
     public static let cpuOnly = KokoroAneComputeUnits(
