@@ -21,23 +21,6 @@ public struct KokoroAneSynthesizer {
         speed: Float = KokoroAneConstants.defaultSpeed,
         store: KokoroAneModelStore
     ) async throws -> KokoroAneSynthesisResult {
-        try await synthesize(
-            inputIds: inputIds,
-            styleS: styleS,
-            styleTimbre: styleTimbre,
-            speed: speed,
-            store: store,
-            trace: nil)
-    }
-
-    static func synthesize(
-        inputIds: [Int32],
-        styleS: [Float],
-        styleTimbre: [Float],
-        speed: Float,
-        store: KokoroAneModelStore,
-        trace: KokoroAneTraceContext?
-    ) async throws -> KokoroAneSynthesisResult {
         guard styleS.count == 128 else {
             throw KokoroAneError.invalidVoicePack("style_s must be length 128, got \(styleS.count)")
         }
@@ -49,7 +32,6 @@ public struct KokoroAneSynthesizer {
         try Task.checkCancellation()
         let tEnc = inputIds.count
         var timings = KokoroAneStageTimings()
-        KokoroAneDiagnostics.log(context: trace, event: "scope=chain phase=begin tEnc=\(tEnc)")
 
         // Build base tensors used by multiple stages.
         let inputIdsArr = try KokoroAneArrays.int32Array(shape: [1, tEnc], from: inputIds)
@@ -66,8 +48,7 @@ public struct KokoroAneSynthesizer {
         let albertOut = try await predict(
             stage: .albert, model: albertModel,
             inputs: ["input_ids": inputIdsArr, "attention_mask": attnMaskArr],
-            timing: &timings.albert,
-            trace: trace
+            timing: &timings.albert
         )
         let bertDur = try rebuild16(albertOut, key: "bert_dur", stage: .albert)
 
@@ -83,8 +64,7 @@ public struct KokoroAneSynthesizer {
                 "speed": speedArr,
                 "attention_mask": attnMaskArr,
             ],
-            timing: &timings.postAlbert,
-            trace: trace
+            timing: &timings.postAlbert
         )
 
         // duration → pred_dur (int32, rounded, clamped ≥ 1)
@@ -95,9 +75,6 @@ public struct KokoroAneSynthesizer {
             return max(r, 1)
         }
         let tA = predDur.reduce(0) { $0 + Int($1) }
-        KokoroAneDiagnostics.log(
-            context: trace,
-            event: "scope=dimensions tEnc=\(tEnc) tA=\(tA)")
         if tA > KokoroAneConstants.maxAcousticFrames {
             throw KokoroAneError.acousticFramesExceedCap(
                 have: tA, cap: KokoroAneConstants.maxAcousticFrames)
@@ -114,8 +91,7 @@ public struct KokoroAneSynthesizer {
         let alignOut = try await predict(
             stage: .alignment, model: alignModel,
             inputs: ["pred_dur": predDurArr, "d": dArr, "t_en": tEnArr],
-            timing: &timings.alignment,
-            trace: trace
+            timing: &timings.alignment
         )
         let enArr = try rebuild16(alignOut, key: "en", stage: .alignment)
         let asrArr = try rebuild16(alignOut, key: "asr", stage: .alignment)
@@ -126,8 +102,7 @@ public struct KokoroAneSynthesizer {
         let prosOut = try await predict(
             stage: .prosody, model: prosodyModel,
             inputs: ["en": enArr, "style_s": styleSArr],
-            timing: &timings.prosody,
-            trace: trace
+            timing: &timings.prosody
         )
         // Fetch F0 / N once; reused fp32 by Noise and fp16 by Vocoder.
         let f0Raw = try outputArray(prosOut, key: "F0", stage: .prosody)
@@ -142,8 +117,7 @@ public struct KokoroAneSynthesizer {
         let noiseOut = try await predict(
             stage: .noise, model: noiseModel,
             inputs: ["F0_curve": f0F32, "style_timbre": styleTimbreF32],
-            timing: &timings.noise,
-            trace: trace
+            timing: &timings.noise
         )
 
         // ── 6: Vocoder (fp16 boundary) ───────────────────────────────
@@ -163,8 +137,7 @@ public struct KokoroAneSynthesizer {
                 "x_source_1": xs1F16,
                 "style_timbre": styleTimbreF16,
             ],
-            timing: &timings.vocoder,
-            trace: trace
+            timing: &timings.vocoder
         )
 
         // ── 7: Tail (fp32 iSTFT) ─────────────────────────────────────
@@ -175,14 +148,10 @@ public struct KokoroAneSynthesizer {
         let tailOut = try await predict(
             stage: .tail, model: tailModel,
             inputs: ["x_pre": xPreF32],
-            timing: &timings.tail,
-            trace: trace
+            timing: &timings.tail
         )
         let audioArr = try outputArray(tailOut, key: "audio", stage: .tail)
         let samples = KokoroAneArrays.readFloats(audioArr)
-        KokoroAneDiagnostics.log(
-            context: trace,
-            event: "scope=chain phase=end tEnc=\(tEnc) tA=\(tA) samples=\(samples.count)")
 
         return KokoroAneSynthesisResult(
             samples: samples,
@@ -200,36 +169,20 @@ public struct KokoroAneSynthesizer {
         stage: KokoroAneStage,
         model: MLModel,
         inputs: [String: MLMultiArray],
-        timing: inout Double,
-        trace: KokoroAneTraceContext?
+        timing: inout Double
     ) async throws -> MLFeatureProvider {
         let provider = try MLDictionaryFeatureProvider(
             dictionary: inputs.mapValues { MLFeatureValue(multiArray: $0) })
-        KokoroAneDiagnostics.log(
-            context: trace,
-            event: "scope=stage stage=\(stage.rawValue) phase=before "
-                + "inputs=\(KokoroAneDiagnostics.tensorShapes(inputs))")
         let clock = ContinuousClock()
         let start = clock.now
         do {
             let out = try await model.prediction(from: provider)
             timing = milliseconds(start.duration(to: clock.now))
-            KokoroAneDiagnostics.log(
-                context: trace,
-                event: "scope=stage stage=\(stage.rawValue) phase=after "
-                    + "elapsedMs=\(timing) "
-                    + "outputs=\(KokoroAneDiagnostics.outputShapes(out))")
             return out
         } catch let error as CancellationError {
             // Preserve cancellation semantics — don't bury it as a stage failure.
-            KokoroAneDiagnostics.log(
-                context: trace,
-                event: "scope=stage stage=\(stage.rawValue) phase=cancelled")
             throw error
         } catch {
-            KokoroAneDiagnostics.log(
-                context: trace,
-                event: "scope=stage stage=\(stage.rawValue) phase=failed error=\(String(describing: error))")
             throw KokoroAneError.predictionFailed(stage: stage.rawValue, underlying: error)
         }
     }

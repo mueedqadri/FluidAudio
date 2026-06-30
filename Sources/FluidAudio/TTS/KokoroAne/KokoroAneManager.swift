@@ -192,23 +192,14 @@ public actor KokoroAneManager {
     public func synthesizeDetailed(
         text: String,
         voice: String? = nil,
-        speed: Float = KokoroAneConstants.defaultSpeed,
-        diagnosticsID: String? = nil
+        speed: Float = KokoroAneConstants.defaultSpeed
     ) async throws -> KokoroAneSynthesisResult {
-        KokoroAneDiagnostics.log(
-            traceID: diagnosticsID,
-            event: "scope=frontend phase=before variant=\(variant.rawValue) "
-                + "sourceChars=\(text.count)")
         // English retains per-word phoneme segmentation, so it can attribute the
         // duration model's frames back to each source word (`wordTimings`).
         // Mandarin/Japanese have no word-segmented frontend here, so they keep
         // the flat-string path (no per-word timing).
         if variant == .english {
-            return try await synthesizeEnglishWithTimings(
-                text: text,
-                voice: voice,
-                speed: speed,
-                diagnosticsID: diagnosticsID)
+            return try await synthesizeEnglishWithTimings(text: text, voice: voice, speed: speed)
         }
 
         let resolved = try await phonemes(for: text)
@@ -220,30 +211,10 @@ public actor KokoroAneManager {
         // low-level `synthesizeFromPhonemes(_:)` stays strict. Chunking runs
         // on the resolved phonemes, so normalization / G2P already happened.
         let chunks = PhonemeChunker.chunk(resolved, maxLength: KokoroAneConstants.maxPhonemeLength)
-        KokoroAneDiagnostics.log(
-            traceID: diagnosticsID,
-            event: "scope=frontend variant=\(variant.rawValue) sourceChars=\(text.count) "
-                + "resolvedPhonemes=\(resolved.count) pieces=\(chunks.count) "
-                + "piecePhonemes=\(chunks.map(\.count))")
         guard chunks.count > 1 else {
-            let trace = diagnosticsID.map {
-                KokoroAneTraceContext(
-                    id: $0,
-                    pieceIndex: 0,
-                    pieceCount: 1,
-                    phonemeLength: resolved.count)
-            }
-            return try await runChain(
-                phonemes: resolved,
-                voice: voice,
-                speed: speed,
-                trace: trace)
+            return try await runChain(phonemes: resolved, voice: voice, speed: speed)
         }
-        return try await synthesizeChunks(
-            chunks,
-            voice: voice,
-            speed: speed,
-            diagnosticsID: diagnosticsID)
+        return try await synthesizeChunks(chunks, voice: voice, speed: speed)
     }
 
     /// Synthesize each chunk and concatenate into one result. Samples are
@@ -254,8 +225,7 @@ public actor KokoroAneManager {
     private func synthesizeChunks(
         _ chunks: [String],
         voice: String?,
-        speed: Float,
-        diagnosticsID: String?
+        speed: Float
     ) async throws -> KokoroAneSynthesisResult {
         var samples: [Float] = []
         var sampleRate = KokoroAneConstants.sampleRate
@@ -264,29 +234,14 @@ public actor KokoroAneManager {
         var perTokenFrames: [Int32] = []
         var timings = KokoroAneStageTimings()
 
-        for (pieceIndex, chunk) in chunks.enumerated() {
-            let trace = diagnosticsID.map {
-                KokoroAneTraceContext(
-                    id: $0,
-                    pieceIndex: pieceIndex,
-                    pieceCount: chunks.count,
-                    phonemeLength: chunk.count)
-            }
-            let result = try await runChain(
-                phonemes: chunk,
-                voice: voice,
-                speed: speed,
-                trace: trace)
+        for chunk in chunks {
+            let result = try await runChain(phonemes: chunk, voice: voice, speed: speed)
             samples.append(contentsOf: result.samples)
             sampleRate = result.sampleRate
             encoderTokens += result.encoderTokens
             acousticFrames += result.acousticFrames
             perTokenFrames.append(contentsOf: result.perTokenFrames)
             timings.add(result.timings)
-            KokoroAneDiagnostics.log(
-                context: trace,
-                event: "scope=piece phase=retained pieceSamples=\(result.samples.count) "
-                    + "retainedSamples=\(samples.count)")
         }
 
         return KokoroAneSynthesisResult(
@@ -308,17 +263,9 @@ public actor KokoroAneManager {
     private func synthesizeEnglishWithTimings(
         text: String,
         voice: String?,
-        speed: Float,
-        diagnosticsID: String?
+        speed: Float
     ) async throws -> KokoroAneSynthesisResult {
-        let normalized = EnglishTextNormalizer.normalize(text)
-        KokoroAneDiagnostics.log(
-            traceID: diagnosticsID,
-            event: "scope=normalization phase=after sourceChars=\(text.count) "
-                + "normalizedChars=\(normalized.count)")
-        let segments = try await englishSegments(
-            forNormalizedText: normalized,
-            diagnosticsID: diagnosticsID)
+        let segments = try await englishSegments(for: text)
         guard !segments.isEmpty else {
             throw KokoroAneError.inputProcessingFailed(
                 "produced no phonemes for input '\(text.trimmingCharacters(in: .whitespacesAndNewlines))'")
@@ -326,13 +273,6 @@ public actor KokoroAneManager {
         let vocab = try await store.vocabulary()
         let chunks = Self.groupSegmentsIntoChunks(
             segments, maxLength: KokoroAneConstants.maxPhonemeLength)
-        KokoroAneDiagnostics.log(
-            traceID: diagnosticsID,
-            event: "scope=frontend variant=english sourceChars=\(text.count) "
-                + "normalizedChars=\(normalized.count) "
-                + "words=\(segments.lazy.filter { !$0.word.isEmpty }.count) "
-                + "pieces=\(chunks.count) piecePhonemes="
-                + "\(chunks.map { $0.map(\.phonemes).joined(separator: " ").count })")
 
         var samples: [Float] = []
         var sampleRate = KokoroAneConstants.sampleRate
@@ -343,20 +283,9 @@ public actor KokoroAneManager {
         var wordTimings: [KokoroAneWordTiming] = []
         var audioOffsetSec = 0.0
 
-        for (pieceIndex, chunkSegments) in chunks.enumerated() {
+        for chunkSegments in chunks {
             let phonemeString = chunkSegments.map(\.phonemes).joined(separator: " ")
-            let trace = diagnosticsID.map {
-                KokoroAneTraceContext(
-                    id: $0,
-                    pieceIndex: pieceIndex,
-                    pieceCount: chunks.count,
-                    phonemeLength: phonemeString.count)
-            }
-            let result = try await runChain(
-                phonemes: phonemeString,
-                voice: voice,
-                speed: speed,
-                trace: trace)
+            let result = try await runChain(phonemes: phonemeString, voice: voice, speed: speed)
 
             wordTimings.append(
                 contentsOf: Self.wordTimings(
@@ -373,11 +302,6 @@ public actor KokoroAneManager {
             perTokenFrames.append(contentsOf: result.perTokenFrames)
             timings.add(result.timings)
             audioOffsetSec += result.durationSeconds
-            KokoroAneDiagnostics.log(
-                context: trace,
-                event: "scope=piece phase=retained pieceSamples=\(result.samples.count) "
-                    + "retainedSamples=\(samples.count) "
-                    + "retainedWordTimings=\(wordTimings.count)")
         }
 
         return KokoroAneSynthesisResult(
@@ -393,28 +317,12 @@ public actor KokoroAneManager {
     /// English text → per-word phoneme segments (normalization + lexicon/G2P) —
     /// the structured form of `phonemes(for:)`.
     private func englishSegments(
-        forNormalizedText text: String,
-        diagnosticsID: String?
+        for text: String
     ) async throws -> [KokoroAneEnglishPhonemizer.PhonemeSegment] {
+        let normalized = EnglishTextNormalizer.normalize(text)
         let phonemizer = await ensureEnglishPhonemizer()
-        return try await phonemizer.phonemizeSegments(text) { word in
-            KokoroAneDiagnostics.log(
-                traceID: diagnosticsID,
-                event: "scope=g2p phase=before wordChars=\(word.count)")
-            do {
-                let phonemes = try await self.englishG2PPhonemes(for: word)
-                KokoroAneDiagnostics.log(
-                    traceID: diagnosticsID,
-                    event: "scope=g2p phase=after wordChars=\(word.count) "
-                        + "outputPhonemes=\(phonemes?.count ?? 0)")
-                return phonemes
-            } catch {
-                KokoroAneDiagnostics.log(
-                    traceID: diagnosticsID,
-                    event: "scope=g2p phase=failed wordChars=\(word.count) "
-                        + "error=\(String(describing: error))")
-                throw error
-            }
+        return try await phonemizer.phonemizeSegments(normalized) { word in
+            try await self.englishG2PPhonemes(for: word)
         }
     }
 
@@ -440,7 +348,8 @@ public actor KokoroAneManager {
         var currentLength = 0  // joined length of `current`
 
         for segment in segments {
-            let addition = current.isEmpty
+            let addition =
+                current.isEmpty
                 ? segment.phonemes.count
                 : segment.phonemes.count + 1  // +1 for the joining space
             if !current.isEmpty, currentLength + addition > maxLength {
@@ -496,7 +405,8 @@ public actor KokoroAneManager {
             let endToken = tokenIndex  // exclusive
 
             if !segment.word.isEmpty, endToken > startToken,
-                endToken < prefix.count {
+                endToken < prefix.count
+            {
                 let startSec = offsetSeconds + Double(prefix[startToken]) * secPerFrame
                 let endSec = offsetSeconds + Double(prefix[endToken]) * secPerFrame
                 timings.append(
@@ -557,11 +467,7 @@ public actor KokoroAneManager {
         voice: String? = nil,
         speed: Float = KokoroAneConstants.defaultSpeed
     ) async throws -> Data {
-        let result = try await runChain(
-            phonemes: phonemes,
-            voice: voice,
-            speed: speed,
-            trace: nil)
+        let result = try await runChain(phonemes: phonemes, voice: voice, speed: speed)
         return try wavData(from: result)
     }
 
@@ -571,11 +477,7 @@ public actor KokoroAneManager {
         voice: String? = nil,
         speed: Float = KokoroAneConstants.defaultSpeed
     ) async throws -> KokoroAneSynthesisResult {
-        try await runChain(
-            phonemes: phonemes,
-            voice: voice,
-            speed: speed,
-            trace: nil)
+        try await runChain(phonemes: phonemes, voice: voice, speed: speed)
     }
 
     // MARK: - Private
@@ -583,8 +485,7 @@ public actor KokoroAneManager {
     private func runChain(
         phonemes: String,
         voice: String?,
-        speed: Float,
-        trace: KokoroAneTraceContext?
+        speed: Float
     ) async throws -> KokoroAneSynthesisResult {
         try await store.loadIfNeeded()
         let vocab = try await store.vocabulary()
@@ -602,8 +503,7 @@ public actor KokoroAneManager {
             styleS: styleS,
             styleTimbre: styleTimbre,
             speed: speed,
-            store: store,
-            trace: trace
+            store: store
         )
     }
 
