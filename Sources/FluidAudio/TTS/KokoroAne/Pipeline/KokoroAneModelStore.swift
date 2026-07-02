@@ -191,20 +191,47 @@ public actor KokoroAneModelStore {
         logger.info("Loading 7 KokoroAne CoreML models from \(repoDir.path)...")
         let loadStart = Date()
 
-        var pendingModels: [KokoroAneStage: MLModel] = [:]
+        // Fail fast if any stage file is missing, before spawning load tasks —
+        // preserves the original contract of throwing `modelNotLoaded` without
+        // touching `self`.
         for stage in KokoroAneStage.allCases {
             let url = repoDir.appendingPathComponent(stage.bundleName)
             guard FileManager.default.fileExists(atPath: url.path) else {
                 throw KokoroAneError.modelNotLoaded(stage.bundleName)
             }
-            let cfg = MLModelConfiguration()
-            cfg.computeUnits = computeUnits.units(for: stage)
-            cfg.allowLowPrecisionAccumulationOnGPU = true
-            let stageStart = Date()
-            let model = try MLModel(contentsOf: url, configuration: cfg)
-            let stageElapsed = Date().timeIntervalSince(stageStart) * 1000
-            pendingModels[stage] = model
-            logger.info("  loaded \(stage.bundleName) in \(String(format: "%.0f", stageElapsed)) ms")
+        }
+
+        // Load the 7 stages concurrently. Each `MLModel(contentsOf:)` is a
+        // one-time ANE specialization (the vocoder alone dominates at ~7.6 s),
+        // so overlapping them turns the cold load from the sum (~10.5 s) into
+        // ≈ max(stage). `async let` transfers each `MLModel` back to the actor
+        // via region isolation — no `Sendable` box and no `@unchecked` — which
+        // the fixed 7-case stage set makes clean to unroll.
+        func stageURL(_ stage: KokoroAneStage) -> URL {
+            repoDir.appendingPathComponent(stage.bundleName)
+        }
+        async let albertLoad = Self.loadStageModel(url: stageURL(.albert), computeUnits: computeUnits.units(for: .albert))
+        async let postAlbertLoad = Self.loadStageModel(url: stageURL(.postAlbert), computeUnits: computeUnits.units(for: .postAlbert))
+        async let alignmentLoad = Self.loadStageModel(url: stageURL(.alignment), computeUnits: computeUnits.units(for: .alignment))
+        async let prosodyLoad = Self.loadStageModel(url: stageURL(.prosody), computeUnits: computeUnits.units(for: .prosody))
+        async let noiseLoad = Self.loadStageModel(url: stageURL(.noise), computeUnits: computeUnits.units(for: .noise))
+        async let vocoderLoad = Self.loadStageModel(url: stageURL(.vocoder), computeUnits: computeUnits.units(for: .vocoder))
+        async let tailLoad = Self.loadStageModel(url: stageURL(.tail), computeUnits: computeUnits.units(for: .tail))
+
+        let stageResults: [(stage: KokoroAneStage, loaded: (model: MLModel, elapsedMs: Double))] = [
+            (.albert, try await albertLoad),
+            (.postAlbert, try await postAlbertLoad),
+            (.alignment, try await alignmentLoad),
+            (.prosody, try await prosodyLoad),
+            (.noise, try await noiseLoad),
+            (.vocoder, try await vocoderLoad),
+            (.tail, try await tailLoad),
+        ]
+
+        var pendingModels: [KokoroAneStage: MLModel] = [:]
+        for (stage, loaded) in stageResults {
+            pendingModels[stage] = loaded.model
+            logger.info("  loaded \(stage.bundleName) in \(String(format: "%.0f", loaded.elapsedMs)) ms")
         }
         let elapsed = Date().timeIntervalSince(loadStart)
         logger.info("All 7 KokoroAne models loaded in \(String(format: "%.2f", elapsed))s")
@@ -224,6 +251,22 @@ public actor KokoroAneModelStore {
         // Pre-load the default voice. Voice-pack failure does not invalidate
         // the model cache (voices are mutable runtime state).
         _ = try await voicePack(variant.defaultVoice)
+    }
+
+    /// Loads one stage's compiled Core ML model off the actor (so the `async
+    /// let`s in `loadIfNeeded` run the 7 loads concurrently) and returns it with
+    /// its load time. `nonisolated` and returning `MLModel` via region isolation
+    /// keeps this thread-safe without a `Sendable` box or `@unchecked`.
+    private nonisolated static func loadStageModel(
+        url: URL,
+        computeUnits: MLComputeUnits
+    ) throws -> (model: MLModel, elapsedMs: Double) {
+        let cfg = MLModelConfiguration()
+        cfg.computeUnits = computeUnits
+        cfg.allowLowPrecisionAccumulationOnGPU = true
+        let start = Date()
+        let model = try MLModel(contentsOf: url, configuration: cfg)
+        return (model, Date().timeIntervalSince(start) * 1000)
     }
 
     public func model(for stage: KokoroAneStage) throws -> MLModel {
