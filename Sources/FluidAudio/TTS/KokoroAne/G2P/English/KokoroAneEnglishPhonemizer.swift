@@ -1,4 +1,5 @@
 import Foundation
+import NaturalLanguage
 
 /// English text frontend for the KokoroAne 7-stage chain.
 ///
@@ -10,13 +11,17 @@ import Foundation
 ///      (issue #710)
 ///   3. case-sensitive Misaki lexicon hit on the original spelling
 ///      (proper nouns, abbreviations like `NATO`)
-///   4. case-sensitive hit on the normalized lower-case form
-///   5. lower-cased Misaki lexicon hit — this is what gives function
+///   4. POS-aware heteronyms (`live`, `wind`, `record`, …): the bundled
+///      lexicon cache is flattened to one pronunciation per word, so the
+///      Misaki gold dict's POS-keyed entries are restored here, selected
+///      by an `NLTagger` lexical-class pass over the input
+///   5. case-sensitive hit on the normalized lower-case form
+///   6. lower-cased Misaki lexicon hit — this is what gives function
 ///      words their weak forms (`to` → `tu`), instead of the BART G2P
 ///      citation form (`tˈO`) that over-stresses them (issue #691)
-///   6. strict ASCII all-caps initialisms (`FBI`, `ATP`) spelled as
+///   7. strict ASCII all-caps initialisms (`FBI`, `ATP`) spelled as
 ///      letter names after a full lexicon miss (issue #710)
-///   7. BART G2P CoreML fallback for OOV words (injected by the caller)
+///   8. BART G2P CoreML fallback for OOV words (injected by the caller)
 ///
 /// Punctuation supported by the chain's `vocab.json` (`, . ! ? ; …` etc.)
 /// is preserved and attached to the preceding word — Kokoro treats those
@@ -103,7 +108,11 @@ struct KokoroAneEnglishPhonemizer: Sendable {
 
         var segments: [PhonemeSegment] = []
 
-        for token in Self.splitWords(trimmed) {
+        let tokens = Self.splitWordTokens(trimmed)
+        let heteronymTags = Self.heteronymTags(for: tokens, in: trimmed)
+
+        for (index, entry) in tokens.enumerated() {
+            let token = entry.token
             if token.isEmpty { continue }
 
             // Punctuation token (single non-word char from the splitter).
@@ -120,7 +129,7 @@ struct KokoroAneEnglishPhonemizer: Sendable {
                 continue
             }
 
-            if let ipa = try await resolveWord(token, fallback: fallback) {
+            if let ipa = try await resolveWord(token, posTag: heteronymTags[index], fallback: fallback) {
                 segments.append(PhonemeSegment(word: token, phonemes: ipa))
             }
         }
@@ -128,10 +137,53 @@ struct KokoroAneEnglishPhonemizer: Sendable {
         return segments
     }
 
+    // MARK: - Heteronym POS tagging
+
+    /// Coarse POS tags (`VERB`/`NOUN`/`ADJ`/`ADV`) for the tokens that are
+    /// heteronyms, keyed by token index. The tagger is only constructed when
+    /// the input actually contains one, so the common path pays a single
+    /// table lookup per word. Tags are resolved up front (no awaits), keeping
+    /// the non-Sendable `NLTagger` out of the async resolution loop.
+    private static func heteronymTags(
+        for tokens: [(token: String, range: Range<String.Index>)],
+        in text: String
+    ) -> [Int: String] {
+        var tags: [Int: String] = [:]
+        var tagger: NLTagger?
+        for (index, entry) in tokens.enumerated() {
+            guard EnglishHeteronyms.table[normalizeKey(entry.token)] != nil else { continue }
+            if tagger == nil {
+                let fresh = NLTagger(tagSchemes: [.lexicalClass])
+                fresh.string = text
+                tagger = fresh
+            }
+            guard let tag = tagger?.tag(at: entry.range.lowerBound, unit: .word, scheme: .lexicalClass).0,
+                let coarse = coarsePOSTag(tag)
+            else { continue }
+            tags[index] = coarse
+        }
+        return tags
+    }
+
+    /// Maps an `NLTagger` lexical class onto the Misaki gold-dict POS buckets;
+    /// nil (→ DEFAULT pronunciation) for everything else. Tense distinctions
+    /// (`read` past vs present) are not resolvable at this granularity and
+    /// stay on DEFAULT.
+    private static func coarsePOSTag(_ tag: NLTag) -> String? {
+        switch tag {
+        case .verb: return "VERB"
+        case .noun: return "NOUN"
+        case .adjective: return "ADJ"
+        case .adverb: return "ADV"
+        default: return nil
+        }
+    }
+
     // MARK: - Word resolution
 
     private func resolveWord(
         _ word: String,
+        posTag: String? = nil,
         fallback: @Sendable (String) async throws -> [String]?
     ) async throws -> String? {
         let normalized = Self.normalizeKey(word)
@@ -159,8 +211,22 @@ struct KokoroAneEnglishPhonemizer: Sendable {
                     + "falling back to the bundled pronunciation")
         }
 
-        if let phonemes = caseSensitiveWordToPhonemes[word]
-            ?? caseSensitiveWordToPhonemes[normalized]
+        // An exact original-spelling hit (proper nouns, `NATO`) still wins
+        // over the heteronym table.
+        if let phonemes = caseSensitiveWordToPhonemes[word], !phonemes.isEmpty {
+            return phonemes.joined()
+        }
+
+        // The bundled lexicon cache is flattened to each word's DEFAULT
+        // reading; heteronyms restore the POS-keyed gold-dict entries and
+        // must resolve before it.
+        if let entry = EnglishHeteronyms.table[normalized],
+            let ipa = posTag.flatMap({ entry[$0] }) ?? entry["DEFAULT"]
+        {
+            return ipa
+        }
+
+        if let phonemes = caseSensitiveWordToPhonemes[normalized]
             ?? wordToPhonemes[normalized],
             !phonemes.isEmpty
         {
@@ -223,20 +289,28 @@ struct KokoroAneEnglishPhonemizer: Sendable {
     /// their own tokens, and drop whitespace. Same shape as the StyleTTS2
     /// frontend's imitation of `nltk.word_tokenize`.
     static func splitWords(_ text: String) -> [String] {
-        var out: [String] = []
-        var current: String = ""
+        splitWordTokens(text).map(\.token)
+    }
 
-        @inline(__always) func flushCurrent() {
-            if !current.isEmpty {
-                out.append(current)
+    /// `splitWords` with each token's source range in `text`, so the
+    /// heteronym pass can ask the POS tagger about a specific occurrence.
+    static func splitWordTokens(_ text: String) -> [(token: String, range: Range<String.Index>)] {
+        var out: [(token: String, range: Range<String.Index>)] = []
+        var current: String = ""
+        var currentStart: String.Index?
+
+        @inline(__always) func flushCurrent(endingAt end: String.Index) {
+            if !current.isEmpty, let start = currentStart {
+                out.append((token: current, range: start..<end))
                 current.removeAll(keepingCapacity: true)
             }
+            currentStart = nil
         }
 
         for index in text.indices {
             let ch = text[index]
             if ch.isWhitespace {
-                flushCurrent()
+                flushCurrent(endingAt: index)
             } else if phoneticApostropheCharacters.contains(ch) {
                 let nextIndex = text.index(after: index)
                 let nextIsWord =
@@ -245,19 +319,21 @@ struct KokoroAneEnglishPhonemizer: Sendable {
                 if !current.isEmpty && nextIsWord {
                     current.append("'")
                 } else if current.isEmpty && Self.startsKnownLeadingApostropheWord(in: text, at: index) {
+                    currentStart = index
                     current.append("'")
                 } else {
-                    flushCurrent()
-                    out.append(String(ch))
+                    flushCurrent(endingAt: index)
+                    out.append((token: String(ch), range: index..<text.index(after: index)))
                 }
             } else if ch.isLetter || ch.isNumber || ch == "-" {
+                if current.isEmpty { currentStart = index }
                 current.append(ch)
             } else {
-                flushCurrent()
-                out.append(String(ch))
+                flushCurrent(endingAt: index)
+                out.append((token: String(ch), range: index..<text.index(after: index)))
             }
         }
-        flushCurrent()
+        flushCurrent(endingAt: text.endIndex)
         return out
     }
 

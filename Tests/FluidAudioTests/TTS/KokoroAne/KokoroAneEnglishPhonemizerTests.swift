@@ -323,4 +323,52 @@ final class KokoroAneEnglishPhonemizerTests: XCTestCase {
         XCTAssertEqual(recordedAll, ["i", "want", "to", "go"])
         XCTAssertTrue(result.contains("tˈO"), "G2P-only path keeps the old citation form")
     }
+
+    // MARK: - POS-aware heteronyms
+
+    /// The bundled lexicon cache flattens every heteronym to its DEFAULT
+    /// reading; the restored gold-dict entries must pick the verb form when
+    /// the word is used as a verb, and DEFAULT otherwise.
+    func testHeteronymLiveResolvesByPartOfSpeech() async throws {
+        let phonemizer = makePhonemizer()
+        let verb = try await phonemizer.phonemize("I want to live") { _ in ["x"] }
+        XCTAssertTrue(verb.contains("lˈɪv"), "verb 'live' must use the short vowel, got: \(verb)")
+
+        let adjective = try await phonemizer.phonemize("a live concert") { _ in ["x"] }
+        XCTAssertTrue(adjective.contains("lˈIv"), "adjective 'live' must use the diphthong, got: \(adjective)")
+    }
+
+    /// Heteronyms beat the flattened lexicon entry (which carries only the
+    /// DEFAULT reading) but stay behind a caller's custom-lexicon override.
+    func testCustomLexiconStillOverridesHeteronym() async throws {
+        let phonemizer = makePhonemizer(custom: ["live": "custom"])
+        let result = try await phonemizer.phonemize("I want to live") { _ in ["x"] }
+        XCTAssertTrue(result.contains("custom"))
+        XCTAssertFalse(result.contains("lˈɪv"))
+    }
+
+    /// A flattened-lexicon entry for a heteronym must lose to the POS pick:
+    /// this is the exact shape of the shipped `us_lexicon_cache.json`, which
+    /// carries `live` → the DEFAULT diphthong only.
+    func testHeteronymBeatsFlattenedLexiconEntry() async throws {
+        let phonemizer = KokoroAneEnglishPhonemizer(
+            wordToPhonemes: ["live": ["l", "ˈ", "I", "v"], "i": ["ˈ", "I"], "here": ["h", "ˈ", "ɪ", "ɹ"]],
+            allowedPunctuation: punctuation
+        )
+        let result = try await phonemizer.phonemize("I live here") { _ in ["x"] }
+        XCTAssertTrue(result.contains("lˈɪv"), "POS pick must beat the flattened DEFAULT, got: \(result)")
+    }
+
+    /// Token ranges from the splitter reconstruct the source substrings —
+    /// the invariant the POS tagger relies on.
+    func testSplitWordTokensRangesMatchSource() {
+        let text = "Don't stop, it's twenty-one!"
+        for token in KokoroAneEnglishPhonemizer.splitWordTokens(text) {
+            let source = String(text[token.range])
+            XCTAssertEqual(
+                KokoroAneEnglishPhonemizer.normalizeKey(source),
+                KokoroAneEnglishPhonemizer.normalizeKey(token.token)
+            )
+        }
+    }
 }
