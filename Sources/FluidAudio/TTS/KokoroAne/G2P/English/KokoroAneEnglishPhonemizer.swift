@@ -21,10 +21,13 @@ import NaturalLanguage
 ///      citation form (`tˈO`) that over-stresses them (issue #691)
 ///   7. strict ASCII all-caps initialisms (`FBI`, `ATP`) spelled as
 ///      letter names after a full lexicon miss (issue #710)
-///   8. compound split for mixed-shape tokens (`MacReader` → `Mac Reader`,
+///   8. possessive/plural stemming à la Misaki `stem_s` (`country's` /
+///      `countries` → `country` + voicing-matched sibilant) — the flattened
+///      cache doesn't carry most `-s` forms
+///   9. compound split for mixed-shape tokens (`MacReader` → `Mac Reader`,
 ///      `CASP14` → `C A S P fourteen`) when every part re-resolves through
-///      steps 1–7
-///   9. BART G2P CoreML fallback for OOV words (injected by the caller)
+///      steps 1–8
+///   10. BART G2P CoreML fallback for OOV words (injected by the caller)
 ///
 /// Punctuation supported by the chain's `vocab.json` (`, . ! ? ; …` etc.)
 /// is preserved and attached to the preceding word — Kokoro treats those
@@ -278,7 +281,62 @@ struct KokoroAneEnglishPhonemizer: Sendable {
             return spelled
         }
 
+        if let stemmed = resolveStemS(word, posTag: posTag) {
+            return stemmed
+        }
+
         return nil
+    }
+
+    // MARK: - Possessives and regular plurals (Misaki stem_s)
+
+    /// Python Misaki resolves `-s` forms at runtime (`Lexicon.stem_s`): the
+    /// flattened lexicon cache stores `country` but not `country's` or
+    /// `countries`, so those miss every map and would reach BART G2P with
+    /// the apostrophe still in the string. Mirror it here: strip the
+    /// possessive/plural suffix, re-resolve the stem through this chain,
+    /// and append the voicing-matched sibilant.
+    ///
+    /// Stem candidates follow Misaki's order — plain `-s` (`cats` → `cat`,
+    /// blocked for `-ss`), `-'s` (`country's` → `country`), `-ies` →
+    /// `y` (`countries` → `country`), `-es` (`boxes` → `box`) — and only a
+    /// stem the chain already knows produces a reading; anything else stays
+    /// on the whole-token path.
+    private func resolveStemS(_ word: String, posTag: String?) -> String? {
+        let lowered = word.lowercased()
+        guard lowered.count >= 3, lowered.hasSuffix("s") else { return nil }
+
+        var stems: [String] = []
+        if lowered.hasSuffix("'s") {
+            stems.append(String(word.dropLast(2)))
+        } else if !lowered.hasSuffix("ss") {
+            stems.append(String(word.dropLast(1)))
+            if lowered.count > 4 {
+                if lowered.hasSuffix("ies") {
+                    stems.append(String(word.dropLast(3)) + "y")
+                } else if lowered.hasSuffix("es") {
+                    stems.append(String(word.dropLast(2)))
+                }
+            }
+        }
+
+        for stem in stems {
+            if let ipa = resolveFromLexicon(stem, posTag: posTag) {
+                return Self.appendSibilant(to: ipa)
+            }
+        }
+        return nil
+    }
+
+    /// Append the `-s` morpheme the way the lexicon's own plural entries are
+    /// written (Misaki `Lexicon._s`): `s` after voiceless stops/fricatives
+    /// (`kˈæt` → `kˈæts`), `ᵻz` after sibilants (`bˈɑks` → `bˈɑksᵻz`), `z`
+    /// after everything voiced (`kˈʌntɹi` → `kˈʌntɹiz`).
+    private static func appendSibilant(to ipa: String) -> String {
+        guard let last = ipa.last else { return ipa }
+        if "ptkfθ".contains(last) { return ipa + "s" }
+        if "szʃʒʧʤ".contains(last) { return ipa + "ᵻz" }
+        return ipa + "z"
     }
 
     // MARK: - Compound tokens (camelCase / letter+digit)
@@ -289,7 +347,16 @@ struct KokoroAneEnglishPhonemizer: Sendable {
     /// — leaving the token on its existing whole-word path — when the token
     /// has no seams, contains an apostrophe (`Alice's` must not read its
     /// possessive as the letter name `S`), or any part misses the lexicon.
+    /// The one apostrophe form handled is a trailing `'s`: the possessive of
+    /// a resolvable compound reads as the compound plus the voicing-matched
+    /// sibilant (`MacReader's` → `mæk ɹˈidəɹz`).
     private func resolveCompound(_ word: String) -> String? {
+        if word.count >= 3, let apostrophe = word.dropLast().last,
+            phoneticApostropheCharacters.contains(apostrophe),
+            word.last == "s" || word.last == "S"
+        {
+            return resolveCompound(String(word.dropLast(2))).map(Self.appendSibilant(to:))
+        }
         guard !word.contains(where: { phoneticApostropheCharacters.contains($0) }) else { return nil }
         let parts = EnglishCompoundWords.splitParts(word)
         guard !parts.isEmpty, parts != [word] else { return nil }

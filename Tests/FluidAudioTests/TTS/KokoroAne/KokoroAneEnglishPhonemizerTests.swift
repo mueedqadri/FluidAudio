@@ -29,6 +29,11 @@ final class KokoroAneEnglishPhonemizerTests: XCTestCase {
         "reader": ["ɹ", "ˈ", "i", "d", "ə", "ɹ"],
         "fourteen": ["f", "ɔ", "ɹ", "t", "ˈ", "i", "n"],
         "three": ["θ", "ɹ", "ˈ", "i"],
+        // Stems for the Misaki stem_s pass — the cache carries the base
+        // word but not its possessive/plural.
+        "country": ["k", "ˈ", "ʌ", "n", "t", "ɹ", "i"],
+        "cat": ["k", "ˈ", "æ", "t"],
+        "box": ["b", "ˈ", "ɑ", "k", "s"],
     ]
 
     /// Mirrors the real `us_lexicon_cache.json`: the blended `AI`/`US`
@@ -180,6 +185,63 @@ final class KokoroAneEnglishPhonemizerTests: XCTestCase {
         XCTAssertEqual(result, "<g2p:abcdef>")
         let recorded = await recorder.words
         XCTAssertEqual(recorded, ["abcdef"])
+    }
+
+    // MARK: - Possessives and regular plurals (Misaki stem_s)
+
+    func testPossessiveResolvesStemPlusVoicedSibilant() async throws {
+        // `country's` misses the cache; the stem resolves and takes `z`
+        // after the voiced final vowel.
+        let recorder = FallbackRecorder()
+        let result = try await makePhonemizer().phonemize("country's") { await recorder.g2p($0) }
+        XCTAssertEqual(result, "kˈʌntɹiz")
+        let recorded = await recorder.words
+        XCTAssertTrue(recorded.isEmpty, "stemmed possessives must not reach BART G2P")
+    }
+
+    func testIesPluralResolvesYStem() async throws {
+        let result = try await makePhonemizer().phonemize("countries") { _ in nil }
+        XCTAssertEqual(result, "kˈʌntɹiz")
+    }
+
+    func testPossessiveAfterVoicelessStopTakesS() async throws {
+        let result = try await makePhonemizer().phonemize("cat's") { _ in nil }
+        XCTAssertEqual(result, "kˈæts")
+    }
+
+    func testEsPluralAfterSibilantTakesReducedVowel() async throws {
+        let result = try await makePhonemizer().phonemize("boxes") { _ in nil }
+        XCTAssertEqual(result, "bˈɑksᵻz")
+    }
+
+    func testInitialismPossessive() async throws {
+        // `AI's` stems to the letter-name override and takes `z`.
+        let result = try await makePhonemizer().phonemize("AI's") { _ in nil }
+        XCTAssertEqual(result, "ˈA ˈIz")
+    }
+
+    func testDoubleSEndingIsNotStemmed() async throws {
+        // `-ss` words are never plural-stripped; the whole token goes to G2P.
+        let recorder = FallbackRecorder()
+        let result = try await makePhonemizer().phonemize("guess") { await recorder.g2p($0) }
+        XCTAssertEqual(result, "<g2p:guess>")
+        let recorded = await recorder.words
+        XCTAssertEqual(recorded, ["guess"])
+    }
+
+    func testSEndingWithUnknownStemKeepsWholeTokenG2P() async throws {
+        // `Jonas` isn't a plural of anything known — no fabricated stem.
+        let recorder = FallbackRecorder()
+        let result = try await makePhonemizer().phonemize("Jonas") { await recorder.g2p($0) }
+        XCTAssertEqual(result, "<g2p:jonas>")
+        let recorded = await recorder.words
+        XCTAssertEqual(recorded, ["jonas"])
+    }
+
+    func testCompoundPossessive() async throws {
+        // Trailing `'s` on a resolvable compound reads the compound + `z`.
+        let result = try await makePhonemizer().phonemize("MacReader's") { _ in nil }
+        XCTAssertEqual(result, "mæk ɹˈidəɹz")
     }
 
     // MARK: - Compound tokens (camelCase / letter+digit)
