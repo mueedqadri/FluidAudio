@@ -24,6 +24,11 @@ final class KokoroAneEnglishPhonemizerTests: XCTestCase {
         "world": ["w", "ˈ", "ɜ", "ɹ", "l", "d"],
         // Lowercase pronoun must stay the weak `ʌs` shape (issue #710).
         "us": ["ˌ", "ʌ", "s"],
+        // Compound-split parts and spelled digit runs.
+        "mac": ["m", "æ", "k"],
+        "reader": ["ɹ", "ˈ", "i", "d", "ə", "ɹ"],
+        "fourteen": ["f", "ɔ", "ɹ", "t", "ˈ", "i", "n"],
+        "three": ["θ", "ɹ", "ˈ", "i"],
     ]
 
     /// Mirrors the real `us_lexicon_cache.json`: the blended `AI`/`US`
@@ -40,8 +45,11 @@ final class KokoroAneEnglishPhonemizerTests: XCTestCase {
         "B": ["b", "ˈ", "i"],
         "T": ["t", "ˈ", "i"],
         "P": ["p", "ˈ", "i"],
+        "C": ["s", "ˈ", "i"],
+        "M": ["ˈ", "ɛ", "m"],
         "NASA": ["n", "ˈ", "æ", "s", "ə"],
         "OK": ["ˌ", "O", "k", "ˈ", "A"],
+        "iPhone": ["ˈ", "I", "f", "ˌ", "O", "n"],
     ]
 
     /// Punctuation present in the real `ANE/vocab.json`.
@@ -172,6 +180,61 @@ final class KokoroAneEnglishPhonemizerTests: XCTestCase {
         XCTAssertEqual(result, "<g2p:abcdef>")
         let recorded = await recorder.words
         XCTAssertEqual(recorded, ["abcdef"])
+    }
+
+    // MARK: - Compound tokens (camelCase / letter+digit)
+
+    func testCamelCaseCompoundReadsAsItsParts() async throws {
+        let recorder = FallbackRecorder()
+        let result = try await makePhonemizer().phonemize("MacReader") { await recorder.g2p($0) }
+        XCTAssertEqual(result, "mæk ɹˈidəɹ")
+        let recorded = await recorder.words
+        XCTAssertTrue(recorded.isEmpty, "resolved compounds must not reach BART G2P")
+    }
+
+    func testLetterDigitCompoundSpellsAcronymAndNumber() async throws {
+        let recorder = FallbackRecorder()
+        let result = try await makePhonemizer().phonemize("CASP14") { await recorder.g2p($0) }
+        XCTAssertEqual(result, "sˈi ˈA ˈɛs pˈi fɔɹtˈin")
+        let recorded = await recorder.words
+        XCTAssertTrue(recorded.isEmpty)
+    }
+
+    func testShortLetterDigitCompound() async throws {
+        let result = try await makePhonemizer().phonemize("MP3") { _ in nil }
+        XCTAssertEqual(result, "ˈɛm pˈi θɹˈi")
+    }
+
+    func testCaseSensitiveLexiconEntryBeatsCompoundSplit() async throws {
+        // `iPhone` has an exact-spelling entry; it must not split to `i Phone`.
+        let result = try await makePhonemizer().phonemize("iPhone") { _ in nil }
+        XCTAssertEqual(result, "ˈIfˌOn")
+    }
+
+    func testCompoundWithUnresolvablePartKeepsWholeTokenG2P() async throws {
+        // `Gregor` misses the lexicon → the whole token goes to BART as
+        // before, not a mix of split parts and per-part G2P.
+        let recorder = FallbackRecorder()
+        let result = try await makePhonemizer().phonemize("McGregor") { await recorder.g2p($0) }
+        XCTAssertEqual(result, "<g2p:mcgregor>")
+        let recorded = await recorder.words
+        XCTAssertEqual(recorded, ["mcgregor"])
+    }
+
+    func testApostropheWordSkipsCompoundSplit() async throws {
+        // A possessive must not read its trailing `s` as a letter name.
+        let recorder = FallbackRecorder()
+        let result = try await makePhonemizer().phonemize("Zorblax's") { await recorder.g2p($0) }
+        XCTAssertEqual(result, "<g2p:zorblax's>")
+        let recorded = await recorder.words
+        XCTAssertEqual(recorded, ["zorblax's"])
+    }
+
+    func testCompoundSegmentKeepsTheOriginalWord() async throws {
+        // Word timing pairs segment words against reader words — the
+        // compound stays one segment carrying the original spelling.
+        let segments = try await makePhonemizer().phonemizeSegments("CASP14") { _ in nil }
+        XCTAssertEqual(segments.map(\.word), ["CASP14"])
     }
 
     func testOOVWordFallsBackToG2PWithNormalizedSpelling() async throws {

@@ -21,7 +21,10 @@ import NaturalLanguage
 ///      citation form (`tˈO`) that over-stresses them (issue #691)
 ///   7. strict ASCII all-caps initialisms (`FBI`, `ATP`) spelled as
 ///      letter names after a full lexicon miss (issue #710)
-///   8. BART G2P CoreML fallback for OOV words (injected by the caller)
+///   8. compound split for mixed-shape tokens (`MacReader` → `Mac Reader`,
+///      `CASP14` → `C A S P fourteen`) when every part re-resolves through
+///      steps 1–7
+///   9. BART G2P CoreML fallback for OOV words (injected by the caller)
 ///
 /// Punctuation supported by the chain's `vocab.json` (`, . ! ? ; …` etc.)
 /// is preserved and attached to the preceding word — Kokoro treats those
@@ -186,6 +189,39 @@ struct KokoroAneEnglishPhonemizer: Sendable {
         posTag: String? = nil,
         fallback: @Sendable (String) async throws -> [String]?
     ) async throws -> String? {
+        if let ipa = resolveFromLexicon(word, posTag: posTag) {
+            return ipa
+        }
+
+        // Mixed-shape tokens (camelCase compounds like `MacReader`,
+        // letter+digit forms like `CASP14`) miss every lexicon as a whole
+        // but split cleanly at their case/digit seams. When every part
+        // resolves from the lexicon/initialism chain, read the parts;
+        // otherwise keep the whole-token BART path so lexicon-shaped names
+        // (`McGregor`) aren't chopped into worse fragments.
+        if let compound = resolveCompound(word) {
+            return compound
+        }
+
+        let normalized = Self.normalizeKey(word)
+        guard !normalized.isEmpty else { return nil }
+        do {
+            if let phonemes = try await fallback(normalized), !phonemes.isEmpty {
+                return phonemes.joined()
+            }
+            Self.logger.warning("G2P returned nil for word '\(normalized)' — skipping")
+            return nil
+        } catch {
+            Self.logger.warning("G2P failed on word '\(normalized)': \(error.localizedDescription)")
+            throw error
+        }
+    }
+
+    /// The full no-model resolution chain: custom lexicon, letter-name
+    /// overrides, case-sensitive/lower-cased Misaki entries, heteronyms,
+    /// and all-caps initialism spell-out. `nil` means a genuine miss — the
+    /// caller decides whether to try a compound split or BART G2P.
+    private func resolveFromLexicon(_ word: String, posTag: String? = nil) -> String? {
         let normalized = Self.normalizeKey(word)
 
         if let custom = customLexicon[word] ?? customLexicon[normalized] {
@@ -242,17 +278,37 @@ struct KokoroAneEnglishPhonemizer: Sendable {
             return spelled
         }
 
-        guard !normalized.isEmpty else { return nil }
-        do {
-            if let phonemes = try await fallback(normalized), !phonemes.isEmpty {
-                return phonemes.joined()
+        return nil
+    }
+
+    // MARK: - Compound tokens (camelCase / letter+digit)
+
+    /// Read a mixed-shape token as its parts: split at case and digit seams
+    /// (``EnglishCompoundWords/splitParts(_:)``), spell digit runs as words,
+    /// and resolve every piece through ``resolveFromLexicon``. Returns `nil`
+    /// — leaving the token on its existing whole-word path — when the token
+    /// has no seams, contains an apostrophe (`Alice's` must not read its
+    /// possessive as the letter name `S`), or any part misses the lexicon.
+    private func resolveCompound(_ word: String) -> String? {
+        guard !word.contains(where: { phoneticApostropheCharacters.contains($0) }) else { return nil }
+        let parts = EnglishCompoundWords.splitParts(word)
+        guard !parts.isEmpty, parts != [word] else { return nil }
+
+        var rendered: [String] = []
+        for part in parts {
+            let spokenWords: [String]
+            if part.first?.isNumber == true {
+                spokenWords = EnglishCompoundWords.spokenWords(forDigits: part)
+            } else {
+                spokenWords = [part]
             }
-            Self.logger.warning("G2P returned nil for word '\(normalized)' — skipping")
-            return nil
-        } catch {
-            Self.logger.warning("G2P failed on word '\(normalized)': \(error.localizedDescription)")
-            throw error
+            guard !spokenWords.isEmpty else { return nil }
+            for spoken in spokenWords {
+                guard let ipa = resolveFromLexicon(spoken) else { return nil }
+                rendered.append(ipa)
+            }
         }
+        return rendered.isEmpty ? nil : rendered.joined(separator: " ")
     }
 
     // MARK: - Letter-name initialisms (issue #710)
