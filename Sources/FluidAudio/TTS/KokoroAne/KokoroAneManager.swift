@@ -567,6 +567,11 @@ public actor KokoroAneManager {
             customLexicon: englishCustomLexicon,
             allowedPunctuation: punctuation
         )
+        logger.notice(
+            "English pronunciation frontend initialized: lexiconLoaded=\(lexiconLoaded), "
+                + "lowerEntries=\(lower.count), caseSensitiveEntries=\(caseSensitive.count), "
+                + "customEntries=\(englishCustomLexicon.count), punctuation=\(punctuation.count), "
+                + "stemmers=stem_s,stem_ed,stem_ing")
         if lexiconLoaded {
             englishPhonemizer = phonemizer
         }
