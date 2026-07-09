@@ -19,22 +19,30 @@ import Foundation
 ///   * leading-zero digit strings — `007` → `zero zero seven`
 ///   * decimals — `3.14` → `three point one four`
 ///   * 12-hour meridiem times — `1:49 PM` → `one forty nine p m`
+///   * currency — `$1.50` → `one dollar and fifty cents` (Misaki
+///     `get_number` currency semantics: `$`/`£`/`€`, cents dropped at zero)
+///   * years — `1999` → `nineteen ninety nine` (Misaki reads standalone
+///     4-digit numbers as years via `num2words to='year'`)
+///   * grouped numbers — `500,000,000` → `five hundred million`
 ///
 /// Left unchanged (ambiguous / structured): version strings (`1.2.3`),
-/// grouped numbers (`1,234`), embedded digits (`word26`, `26word`), loose
-/// colon numbers without a meridiem (`1:49`), invalid times (`1:99 PM`),
-/// and 24-hour forms (`13:49`).
+/// embedded digits (`word26`, `26word`), loose colon numbers without a
+/// meridiem (`1:49`), invalid times (`1:99 PM`), and 24-hour forms
+/// (`13:49`).
 enum EnglishTextNormalizer {
 
     /// Rewrite strict standalone numeric forms in `text` to spoken words.
     /// Passes run in priority order so a token is consumed by the most
-    /// specific rule (a meridiem time before its bare digits, a decimal
-    /// before its integer part).
+    /// specific rule (a meridiem time before its bare digits, currency
+    /// before its decimal, a year before its cardinal).
     static func normalize(_ text: String) -> String {
         var result = text
         result = apply(Self.meridiemTimeRegex, to: result, transform: Self.spellMeridiemTime)
+        result = apply(Self.currencyRegex, to: result, transform: Self.spellCurrency)
         result = apply(Self.decimalRegex, to: result, transform: Self.spellDecimal)
         result = apply(Self.ordinalRegex, to: result, transform: Self.spellOrdinal)
+        result = apply(Self.yearRegex, to: result, transform: Self.spellYear)
+        result = apply(Self.groupedRegex, to: result, transform: Self.spellGrouped)
         result = apply(Self.leadingZeroRegex, to: result, transform: Self.spellLeadingZero)
         result = apply(Self.cardinalRegex, to: result, transform: Self.spellCardinal)
         return result
@@ -59,6 +67,21 @@ enum EnglishTextNormalizer {
     /// punctuation instead of being swallowed (`1:49 PM.`).
     private static let meridiemTimeRegex = regex(
         leadBoundary + #"(1[0-2]|[1-9]):([0-5][0-9])\s*([AaPp])(?:\.[Mm]\.?|[Mm])"# + #"(?![A-Za-z])"#)
+
+    /// `$1.50`, `£500,000,000` — currency symbol immediately before a
+    /// number with optional grouping commas and decimal part.
+    private static let currencyRegex = regex(
+        #"([$£€])\s?([0-9][0-9,]*(?:\.[0-9]+)?)"# + trailBoundary)
+
+    /// `1999` — a standalone 4-digit number reads as a year (Misaki
+    /// `get_number` sends every non-currency 4-digit token through
+    /// `num2words to='year'`).
+    private static let yearRegex = regex(
+        leadBoundary + #"([1-9][0-9]{3})"# + trailBoundary)
+
+    /// `500,000,000` — comma-grouped integer.
+    private static let groupedRegex = regex(
+        leadBoundary + #"([0-9]{1,3}(?:,[0-9]{3})+)"# + trailBoundary)
 
     /// `3.14` — integer and fractional parts, not part of a version string.
     private static let decimalRegex = regex(
@@ -109,6 +132,71 @@ enum EnglishTextNormalizer {
 
     private static func spellCardinal(_ groups: [String]) -> String? {
         cardinalWords(groups[1])
+    }
+
+    /// Port of Misaki `get_number`'s currency branch: integer and cents
+    /// pairs with `and` between them, units pluralized away from 1, a zero
+    /// pair dropped. A cents part longer than two digits isn't currency by
+    /// Misaki's `is_currency` — it reads as a decimal plus the plural unit
+    /// (`$1.234` → `one point two three four dollars`).
+    private static func spellCurrency(_ groups: [String]) -> String? {
+        let units: (major: String, minor: String)
+        switch groups[1] {
+        case "$": units = ("dollar", "cent")
+        case "£": units = ("pound", "pence")
+        case "€": units = ("euro", "cent")
+        default: return nil
+        }
+
+        let value = groups[2].replacingOccurrences(of: ",", with: "")
+        let parts = value.split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count <= 2, let major = Int(parts[0].isEmpty ? "0" : parts[0]) else { return nil }
+
+        func unitWord(_ unit: String, count: Int) -> String {
+            (count == 1 || unit == "pence") ? unit : unit + "s"
+        }
+
+        if parts.count == 2, parts[1].count > 2, !parts[1].allSatisfy({ $0 == "0" }) {
+            guard let spoken = spellDecimal(["", String(parts[0]), String(parts[1])]) else { return nil }
+            return "\(spoken) \(unitWord(units.major, count: 2))"
+        }
+
+        let minor = parts.count == 2 ? Int(parts[1]) ?? 0 : 0
+        var spoken: [String] = []
+        if major != 0 || minor == 0 {
+            guard let majorWords = cardinalWords(String(major)) else { return nil }
+            spoken.append("\(majorWords) \(unitWord(units.major, count: major))")
+        }
+        if minor != 0 {
+            guard let minorWords = cardinalWords(String(minor)) else { return nil }
+            spoken.append("\(minorWords) \(unitWord(units.minor, count: minor))")
+        }
+        return spoken.joined(separator: " and ")
+    }
+
+    /// Port of `num2words to='year'` as Misaki consumes it (its `extend_num`
+    /// drops the `and` connective): `1999` → `nineteen ninety nine`, `1905` →
+    /// `nineteen oh five`, `1900` → `nineteen hundred`, `2005` → `two
+    /// thousand five`.
+    private static func spellYear(_ groups: [String]) -> String? {
+        guard let year = Int(groups[1]) else { return nil }
+        let century = year / 100
+        let remainder = year % 100
+        if century % 10 == 0 {
+            // 2000 → two thousand, 2005 → two thousand five, 1000 → one thousand
+            guard let whole = cardinalWords(String(year)) else { return nil }
+            return whole
+        }
+        guard let high = cardinalWords(String(century)) else { return nil }
+        if remainder == 0 {
+            return "\(high) hundred"
+        }
+        guard let low = cardinalWords(String(remainder)) else { return nil }
+        return remainder < 10 ? "\(high) oh \(low)" : "\(high) \(low)"
+    }
+
+    private static func spellGrouped(_ groups: [String]) -> String? {
+        cardinalWords(groups[1].replacingOccurrences(of: ",", with: ""))
     }
 
     // MARK: - Helpers

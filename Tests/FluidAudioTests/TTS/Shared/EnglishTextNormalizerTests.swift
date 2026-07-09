@@ -48,14 +48,64 @@ final class EnglishTextNormalizerTests: XCTestCase {
             "At one forty nine p m on the thirteenth I scored three point one four in twenty six tries.")
     }
 
+    // MARK: - Currency (Misaki get_number currency semantics)
+
+    func testCurrencyDollarsAndCents() {
+        XCTAssertEqual(
+            normalize("He paid $1.50 for it."),
+            "He paid one dollar and fifty cents for it.")
+    }
+
+    func testCurrencyWholeAmountDropsCents() {
+        XCTAssertEqual(normalize("$5.00"), "five dollars")
+        XCTAssertEqual(normalize("$1"), "one dollar")
+    }
+
+    func testCurrencyCentsOnly() {
+        XCTAssertEqual(normalize("$0.75"), "seventy five cents")
+    }
+
+    func testCurrencyGroupedMillions() {
+        XCTAssertEqual(normalize("£500,000,000 was lent."), "five hundred million pounds was lent.")
+    }
+
+    func testCurrencyLongDecimalReadsAsDecimalPlusUnit() {
+        XCTAssertEqual(normalize("$1.234"), "one point two three four dollars")
+    }
+
+    // MARK: - Years (num2words to='year' as Misaki consumes it)
+
+    func testYearPairs() {
+        XCTAssertEqual(
+            normalize("They lived there in 1999."),
+            "They lived there in nineteen ninety nine.")
+        XCTAssertEqual(normalize("the Treaty of 1913"), "the Treaty of nineteen thirteen")
+    }
+
+    func testYearWithOhDecade() {
+        XCTAssertEqual(normalize("Born in 1905."), "Born in nineteen oh five.")
+    }
+
+    func testYearEvenHundred() {
+        XCTAssertEqual(normalize("By 1900 it was done."), "By nineteen hundred it was done.")
+    }
+
+    func testYearTwoThousands() {
+        XCTAssertEqual(normalize("Since 2005."), "Since two thousand five.")
+        XCTAssertEqual(normalize("In 2000."), "In two thousand.")
+    }
+
     // MARK: - Ambiguous / structured forms left unchanged
 
     func testVersionStringUnchanged() {
         XCTAssertEqual(normalize("Install 1.2.3 now"), "Install 1.2.3 now")
     }
 
-    func testGroupedNumberUnchanged() {
-        XCTAssertEqual(normalize("It costs 1,234 dollars"), "It costs 1,234 dollars")
+    func testGroupedNumberStripsCommas() {
+        XCTAssertEqual(
+            normalize("It costs 1,234 dollars"),
+            "It costs one thousand two hundred thirty four dollars")
+        XCTAssertEqual(normalize("15,000,000,000 tons"), "fifteen billion tons")
     }
 
     func testEmbeddedDigitsUnchanged() {
