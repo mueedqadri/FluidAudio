@@ -272,6 +272,7 @@ struct KokoroAneEnglishPhonemizer: Sendable {
     /// caller decides whether to try a compound split or BART G2P.
     private func resolveFromLexicon(_ word: String, posTag: String? = nil) -> String? {
         let normalized = Self.normalizeKey(word)
+        let rawLowercased = word.lowercased()
 
         if let custom = customLexicon[word] ?? customLexicon[normalized] {
             return custom
@@ -299,6 +300,17 @@ struct KokoroAneEnglishPhonemizer: Sendable {
         // An exact original-spelling hit (proper nouns, `NATO`) still wins
         // over the heteronym table.
         if let phonemes = caseSensitiveWordToPhonemes[word], !phonemes.isEmpty {
+            return phonemes.joined()
+        }
+
+        // `normalizeKey` deliberately removes punctuation, but the Misaki
+        // cache also contains canonical hyphenated entries such as
+        // `short-lived`. Probe the raw lower-cased form before stripping it.
+        if rawLowercased != normalized,
+            let phonemes = caseSensitiveWordToPhonemes[rawLowercased]
+                ?? wordToPhonemes[rawLowercased],
+            !phonemes.isEmpty
+        {
             return phonemes.joined()
         }
 

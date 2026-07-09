@@ -47,6 +47,7 @@ final class KokoroAneEnglishPhonemizerTests: XCTestCase {
         "short": ["ʃ", "ˈ", "ɔ", "ɹ", "t"],
         "grid": ["ɡ", "ɹ", "ˈ", "ɪ", "d"],
         "bre": ["b", "ɹ", "ˈ", "ɛ"],
+        "short-lived": ["ʃ", "ˈ", "ɔ", "ɹ", "t", "l", "ˈ", "I", "v", "d"],
     ]
 
     /// Mirrors the real `us_lexicon_cache.json`: the blended `AI`/`US`
@@ -257,6 +258,14 @@ final class KokoroAneEnglishPhonemizerTests: XCTestCase {
         let recorder = FallbackRecorder()
         let result = try await makePhonemizer().phonemize("They lived") { await recorder.g2p($0) }
         XCTAssertTrue(result.contains("lˈɪvd"), "verb 'lived' must use the short vowel, got: \(result)")
+        let recorded = await recorder.words
+        XCTAssertTrue(recorded.isEmpty)
+    }
+
+    func testHyphenatedGoldEntryUsesRawLowercaseProbe() async throws {
+        let recorder = FallbackRecorder()
+        let result = try await makePhonemizer().phonemize("short-lived") { await recorder.g2p($0) }
+        XCTAssertEqual(result, "ʃˈɔɹtlˈIvd")
         let recorded = await recorder.words
         XCTAssertTrue(recorded.isEmpty)
     }
