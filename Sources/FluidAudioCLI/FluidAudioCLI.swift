@@ -74,6 +74,8 @@ struct FluidAudioCLI {
             await LSEENDBenchmark.run(arguments: Array(arguments.dropFirst(2)))
         case "g2p-benchmark":
             await G2PBenchmark.run(arguments: Array(arguments.dropFirst(2)))
+        case "phonemize-parity":
+            await PhonemizeParityCommand.run(arguments: Array(arguments.dropFirst(2)))
         case "nemotron-benchmark":
             await NemotronBenchmark.run(arguments: Array(arguments.dropFirst(2)))
         case "nemotron-transcribe":
