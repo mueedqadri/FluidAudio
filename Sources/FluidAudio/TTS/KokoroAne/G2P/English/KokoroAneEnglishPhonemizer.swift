@@ -1,7 +1,7 @@
 import Foundation
 import NaturalLanguage
 
-/// English text frontend for the KokoroAne 7-stage chain.
+/// English text frontend for the KokoroAne 12-stage chain.
 ///
 /// Word resolution order (mirrors `StyleTTS2Phonemizer` and Kokoro's
 /// Misaki frontend):
@@ -24,10 +24,13 @@ import NaturalLanguage
 ///   8. possessive/plural stemming à la Misaki `stem_s` (`country's` /
 ///      `countries` → `country` + voicing-matched sibilant) — the flattened
 ///      cache doesn't carry most `-s` forms
-///   9. compound split for mixed-shape tokens (`MacReader` → `Mac Reader`,
+///   9. past-tense stemming à la Misaki `stem_ed` (`lived` → `live` + `d`)
+///   10. progressive stemming à la Misaki `stem_ing` (`making` → `make` +
+///       `ɪŋ`)
+///   11. compound split for mixed-shape tokens (`MacReader` → `Mac Reader`,
 ///      `CASP14` → `C A S P fourteen`) when every part re-resolves through
-///      steps 1–8
-///   10. BART G2P CoreML fallback for OOV words (injected by the caller)
+///      steps 1–10
+///   12. BART G2P CoreML fallback for OOV words (injected by the caller)
 ///
 /// Punctuation supported by the chain's `vocab.json` (`, . ! ? ; …` etc.)
 /// is preserved and attached to the preceding word — Kokoro treats those
@@ -148,8 +151,9 @@ struct KokoroAneEnglishPhonemizer: Sendable {
     /// Coarse POS tags (`VERB`/`NOUN`/`ADJ`/`ADV`) for the tokens that are
     /// heteronyms, keyed by token index. The tagger is only constructed when
     /// the input actually contains one, so the common path pays a single
-    /// table lookup per word. Tags are resolved up front (no awaits), keeping
-    /// the non-Sendable `NLTagger` out of the async resolution loop.
+    /// table lookup per word or a small number of candidate-stem lookups.
+    /// Tags are resolved up front (no awaits), keeping the non-Sendable
+    /// `NLTagger` out of the async resolution loop.
     private static func heteronymTags(
         for tokens: [(token: String, range: Range<String.Index>)],
         in text: String
@@ -157,7 +161,7 @@ struct KokoroAneEnglishPhonemizer: Sendable {
         var tags: [Int: String] = [:]
         var tagger: NLTagger?
         for (index, entry) in tokens.enumerated() {
-            guard EnglishHeteronyms.table[normalizeKey(entry.token)] != nil else { continue }
+            guard mightNeedHeteronymTag(entry.token) else { continue }
             if tagger == nil {
                 let fresh = NLTagger(tagSchemes: [.lexicalClass])
                 fresh.string = text
@@ -171,10 +175,52 @@ struct KokoroAneEnglishPhonemizer: Sendable {
         return tags
     }
 
+    /// Inflected heteronyms need a POS tag even though the full token is not
+    /// itself in the heteronym table (`lived` must re-resolve `live` as a
+    /// verb). Probe the same bounded candidate set used by the inflection
+    /// resolvers, keeping the `NLTagger` lazy on the ordinary path.
+    private static func mightNeedHeteronymTag(_ word: String) -> Bool {
+        let lowered = word.lowercased()
+        if EnglishHeteronyms.table[normalizeKey(lowered)] != nil { return true }
+
+        var stems: [String] = []
+        if lowered.count >= 3, lowered.hasSuffix("s") {
+            if lowered.hasSuffix("'s") {
+                stems.append(String(lowered.dropLast(2)))
+            } else if !lowered.hasSuffix("ss") {
+                stems.append(String(lowered.dropLast()))
+                if lowered.count > 4 {
+                    if lowered.hasSuffix("ies") {
+                        stems.append(String(lowered.dropLast(3)) + "y")
+                    } else if lowered.hasSuffix("es") {
+                        stems.append(String(lowered.dropLast(2)))
+                    }
+                }
+            }
+        } else if lowered.count >= 4, lowered.hasSuffix("d") {
+            if !lowered.hasSuffix("dd") {
+                stems.append(String(lowered.dropLast()))
+            }
+            if lowered.count > 4, lowered.hasSuffix("ed"), !lowered.hasSuffix("eed") {
+                stems.append(String(lowered.dropLast(2)))
+            }
+        } else if lowered.count >= 5, lowered.hasSuffix("ing") {
+            if lowered.count > 5 {
+                stems.append(String(lowered.dropLast(3)))
+            }
+            stems.append(String(lowered.dropLast(3)) + "e")
+            if lowered.count > 5 {
+                stems.append(String(lowered.dropLast(4)))
+            }
+        }
+
+        return stems.contains { EnglishHeteronyms.table[normalizeKey($0)] != nil }
+    }
+
     /// Maps an `NLTagger` lexical class onto the Misaki gold-dict POS buckets;
     /// nil (→ DEFAULT pronunciation) for everything else. Tense distinctions
-    /// (`read` past vs present) are not resolvable at this granularity and
-    /// stay on DEFAULT.
+    /// (`read`, `reread`, `used`, and `wound` past vs present) are not
+    /// resolvable at this granularity and stay on DEFAULT.
     private static func coarsePOSTag(_ tag: NLTag) -> String? {
         switch tag {
         case .verb: return "VERB"
@@ -285,10 +331,18 @@ struct KokoroAneEnglishPhonemizer: Sendable {
             return stemmed
         }
 
+        if let stemmed = resolveStemEd(word, posTag: posTag) {
+            return stemmed
+        }
+
+        if let stemmed = resolveStemIng(word, posTag: posTag) {
+            return stemmed
+        }
+
         return nil
     }
 
-    // MARK: - Possessives and regular plurals (Misaki stem_s)
+    // MARK: - Possessives, plurals, and inflections (Misaki stem_s/stem_ed/stem_ing)
 
     /// Python Misaki resolves `-s` forms at runtime (`Lexicon.stem_s`): the
     /// flattened lexicon cache stores `country` but not `country's` or
@@ -337,6 +391,87 @@ struct KokoroAneEnglishPhonemizer: Sendable {
         if "ptkfθ".contains(last) { return ipa + "s" }
         if "szʃʒʧʤ".contains(last) { return ipa + "ᵻz" }
         return ipa + "z"
+    }
+
+    private static let usTapContexts: Set<Character> = Set("AIOWYiuæɑəɛɪɹʊʌ")
+
+    /// Append Misaki's US past-tense allomorph. The voiceless set is
+    /// intentionally distinct from the plural resolver's set.
+    private static func appendPastTense(to ipa: String) -> String {
+        guard let last = ipa.last else { return ipa }
+        if "pkfθʃsʧ".contains(last) { return ipa + "t" }
+        if last == "d" { return ipa + "ᵻd" }
+        if last != "t" { return ipa + "d" }
+
+        let characters = Array(ipa)
+        guard characters.count >= 2 else { return ipa + "ɪd" }
+        if usTapContexts.contains(characters[characters.count - 2]) {
+            return String(characters.dropLast()) + "ɾᵻd"
+        }
+        return ipa + "ᵻd"
+    }
+
+    /// Append Misaki's US progressive allomorph, including tapping after the
+    /// same vowel/rhotic contexts as the past-tense resolver.
+    private static func appendProgressive(to ipa: String) -> String {
+        let characters = Array(ipa)
+        guard characters.count >= 2,
+            characters.last == "t",
+            usTapContexts.contains(characters[characters.count - 2])
+        else {
+            return ipa + "ɪŋ"
+        }
+        return String(characters.dropLast()) + "ɾɪŋ"
+    }
+
+    /// Resolve regular past tense forms by re-resolving a known base through
+    /// the full chain, preserving its token-level POS tag for heteronyms.
+    private func resolveStemEd(_ word: String, posTag: String?) -> String? {
+        let lowered = word.lowercased()
+        guard lowered.count >= 4, lowered.hasSuffix("d") else { return nil }
+
+        var stems: [String] = []
+        if !lowered.hasSuffix("dd") {
+            stems.append(String(word.dropLast()))
+        }
+        if lowered.count > 4, lowered.hasSuffix("ed"), !lowered.hasSuffix("eed") {
+            stems.append(String(word.dropLast(2)))
+        }
+
+        for stem in stems {
+            if let ipa = resolveFromLexicon(stem, posTag: posTag) {
+                return Self.appendPastTense(to: ipa)
+            }
+        }
+        return nil
+    }
+
+    /// Resolve regular progressive forms by re-resolving Misaki's ordered
+    /// base candidates: direct, silent-e restoration, then doubled consonant.
+    private func resolveStemIng(_ word: String, posTag: String?) -> String? {
+        let lowered = word.lowercased()
+        guard lowered.count >= 5, lowered.hasSuffix("ing") else { return nil }
+
+        var stems: [String] = []
+        if lowered.count > 5 {
+            stems.append(String(word.dropLast(3)))
+        }
+        stems.append(String(word.dropLast(3)) + "e")
+
+        let characters = Array(lowered)
+        let isDoubledConsonant = characters.count > 5
+            && characters[characters.count - 4] == characters[characters.count - 5]
+            && "bcdgklmnprstvxz".contains(characters[characters.count - 4])
+        if lowered.count > 5, (isDoubledConsonant || lowered.hasSuffix("cking")) {
+            stems.append(String(word.dropLast(4)))
+        }
+
+        for stem in stems {
+            if let ipa = resolveFromLexicon(stem, posTag: posTag) {
+                return Self.appendProgressive(to: ipa)
+            }
+        }
+        return nil
     }
 
     // MARK: - Compound tokens (camelCase / letter+digit)

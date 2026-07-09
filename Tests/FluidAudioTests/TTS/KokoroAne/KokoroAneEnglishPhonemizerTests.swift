@@ -17,6 +17,7 @@ final class KokoroAneEnglishPhonemizerTests: XCTestCase {
         "'twas": ["t", "w", "ˈ", "ɑ", "z"],
         "to": ["t", "u"],
         "i": ["ˈ", "I"],
+        "they": ["ð", "ˈ", "A"],
         "want": ["w", "ˈ", "ɑ", "n", "t"],
         "go": ["ɡ", "ˈ", "O"],
         "hello": ["h", "ə", "l", "ˈ", "O"],
@@ -34,6 +35,18 @@ final class KokoroAneEnglishPhonemizerTests: XCTestCase {
         "country": ["k", "ˈ", "ʌ", "n", "t", "ɹ", "i"],
         "cat": ["k", "ˈ", "æ", "t"],
         "box": ["b", "ˈ", "ɑ", "k", "s"],
+        // Stems for Misaki's stem_ed/stem_ing passes.
+        "walk": ["w", "ˈ", "ɔ", "k"],
+        "price": ["p", "ɹ", "ˈ", "I", "s"],
+        "gaze": ["ɡ", "ˈ", "A", "z"],
+        "need": ["n", "ˈ", "i", "d"],
+        "heat": ["h", "ˈ", "i", "t"],
+        "make": ["m", "ˈ", "A", "k"],
+        "run": ["ɹ", "ˈ", "ʌ", "n"],
+        "free": ["f", "ɹ", "ˈ", "i"],
+        "short": ["ʃ", "ˈ", "ɔ", "ɹ", "t"],
+        "grid": ["ɡ", "ɹ", "ˈ", "ɪ", "d"],
+        "bre": ["b", "ɹ", "ˈ", "ɛ"],
     ]
 
     /// Mirrors the real `us_lexicon_cache.json`: the blended `AI`/`US`
@@ -236,6 +249,50 @@ final class KokoroAneEnglishPhonemizerTests: XCTestCase {
         XCTAssertEqual(result, "<g2p:jonas>")
         let recorded = await recorder.words
         XCTAssertEqual(recorded, ["jonas"])
+    }
+
+    // MARK: - Past tense and progressive inflections (Misaki stem_ed/stem_ing)
+
+    func testPastTenseUsesHeteronymStemPOSTag() async throws {
+        let recorder = FallbackRecorder()
+        let result = try await makePhonemizer().phonemize("They lived") { await recorder.g2p($0) }
+        XCTAssertTrue(result.contains("lˈɪvd"), "verb 'lived' must use the short vowel, got: \(result)")
+        let recorded = await recorder.words
+        XCTAssertTrue(recorded.isEmpty)
+    }
+
+    func testPastTenseVoicingAndTapRules() async throws {
+        let recorder = FallbackRecorder()
+        let result = try await makePhonemizer().phonemize("walked priced gazed wanted needed heated freed") {
+            await recorder.g2p($0)
+        }
+        XCTAssertEqual(result, "wˈɔkt pɹˈIst ɡˈAzd wˈɑntᵻd nˈidᵻd hˈiɾᵻd fɹˈid")
+        let recorded = await recorder.words
+        XCTAssertTrue(recorded.isEmpty)
+    }
+
+    func testPastTenseGuardsKeepWholeTokenFallback() async throws {
+        let recorder = FallbackRecorder()
+        let result = try await makePhonemizer().phonemize("gridd breed") { await recorder.g2p($0) }
+        XCTAssertEqual(result, "<g2p:gridd> <g2p:breed>")
+        let recorded = await recorder.words
+        XCTAssertEqual(recorded, ["gridd", "breed"])
+    }
+
+    func testProgressiveStemCandidatesAndTapRule() async throws {
+        let recorder = FallbackRecorder()
+        let result = try await makePhonemizer().phonemize("walking making running heating") { await recorder.g2p($0) }
+        XCTAssertEqual(result, "wˈɔkɪŋ mˈAkɪŋ ɹˈʌnɪŋ hˈiɾɪŋ")
+        let recorded = await recorder.words
+        XCTAssertTrue(recorded.isEmpty)
+    }
+
+    func testShortIngWordKeepsWholeTokenFallback() async throws {
+        let recorder = FallbackRecorder()
+        let result = try await makePhonemizer().phonemize("king") { await recorder.g2p($0) }
+        XCTAssertEqual(result, "<g2p:king>")
+        let recorded = await recorder.words
+        XCTAssertEqual(recorded, ["king"])
     }
 
     func testCompoundPossessive() async throws {
