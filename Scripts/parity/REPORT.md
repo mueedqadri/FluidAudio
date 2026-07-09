@@ -19,6 +19,14 @@ swift run fluidaudiocli phonemize-parity --input corpus.txt --output swift.jsonl
 python3 scripts/parity/diff_report.py --swift swift.jsonl --misaki misaki.jsonl
 ```
 
+The frontend reads its lexicon from the installed cache, so regenerate that
+first when the pinned misaki version moves:
+
+```sh
+~/misaki-parity/bin/python scripts/generate_us_lexicon_cache.py \
+    ~/.cache/fluidaudio/Models/kokoro/us_lexicon_cache.json
+```
+
 Both sides emit `{"i", "text", "words": [{word, phonemes}]}` JSONL; the differ
 aligns word streams per line (`SequenceMatcher`), compares mismatched regions
 jointly (so `1999` vs `one thousand …` tokenization differences compare
@@ -28,10 +36,14 @@ visible.
 
 ## Result
 
-| Corpus | Baseline mismatch | After port |
-| --- | --- | --- |
-| Gatsby | 19.04% | **0.65%** |
-| Keynes | 19.78% | **1.54%** |
+| Corpus | Baseline mismatch | After port | After lexicon regen |
+| --- | --- | --- | --- |
+| Gatsby | 19.04% | 0.65% | **0.61%** |
+| Keynes | 19.78% | 1.54% | **1.37%** |
+
+The last column regenerates `us_lexicon_cache.json` from misaki 0.9.4 via
+`Scripts/generate_us_lexicon_cache.py` (see below). Word-for-word against the
+previous run: 121 words improved, **0 regressed**.
 
 ## What was ported (in impact order)
 
@@ -61,16 +73,18 @@ visible.
 8. **Residual digit runs** read as numbers instead of reaching BART; OOV
    fallback receives the original-cased spelling (the BART grapheme vocab is
    case-sensitive).
+9. **Lexicon regeneration** (`Scripts/generate_us_lexicon_cache.py`): the
+   HF-hosted `us_lexicon_cache.json` snapshot predated 236 gold corrections
+   (`mention`/`essential`/`substantial` ʃ→ʧ, `status` æ→A). The script rebuilds
+   the flattened `{lower, caseSensitive}` cache from the installed misaki's
+   `us_gold.json` + `us_silver.json`, so the snapshot tracks whatever version
+   the parity venv pins.
 
 ## Accepted residual divergences
 
 - **NLTagger vs spaCy POS disagreement** (~0.2%): `that` DT/IN, `in`,
   capitalized sentence-initial words. Symmetric noise, not fixable without
   swapping taggers.
-- **Stale lexicon snapshot** (~0.1%): the HF-hosted `us_lexicon_cache.json` /
-  `us_gold.json` predate 236 upstream gold changes (`mention` ʃ→ʧ, `status`
-  æ→A, …). Fix by regenerating the HF assets from current misaki data —
-  asset task, not code.
 - **Tense heteronyms**: `read`/`reread`/`wound` past tense stay DEFAULT
   (NLTagger has no tense).
 - **OOV names**: both sides guess (`<OOV:…>` here, `❓`/BART there) — not a
@@ -78,5 +92,21 @@ visible.
   the reference cannot (footnote digits, accented spellings).
 - **Times**: `6:00 a.m.` is deliberately normalized here (`six o'clock a m`);
   canonical Misaki has no time handling and reads raw digits. Ours is kept.
+
+## Known defect: hyphens adjoining digits
+
+`EnglishTextNormalizer` verbalizes numbers before tokenization and leaves the
+hyphen behind, so digit-adjacent hyphens glue normalized words together and a
+leading minus is dropped outright:
+
+| Input | This frontend | Canonical Misaki |
+| --- | --- | --- |
+| `-5` | `fˈIv` ("five") | `mˈInəs fˈIv` ("minus five") |
+| `1-2` | `wˌʌntˈu` | `wˈʌntˌu` (stress differs) |
+| `COVID-19` | `kˌOvɪdnˌIntˈin` | `kˈOvˌɪd nˌIntˈin` (prespace) |
+| `2022-04-15` | "two thousand twenty two-zero four-fifteen" | "twenty twenty two zero four fifteen" |
+
+`-5` losing its sign is the one that changes meaning. All-letter compounds
+(`well-defined`, `state-of-the-art`, `T-shirt`, `mother-in-law`) are exact.
 
 Rerun the loop after any frontend change; the diff should only shrink.
