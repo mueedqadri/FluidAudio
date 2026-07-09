@@ -48,6 +48,13 @@ final class KokoroAneEnglishPhonemizerTests: XCTestCase {
         "grid": ["ɡ", "ɹ", "ˈ", "ɪ", "d"],
         "bre": ["b", "ɹ", "ˈ", "ɛ"],
         "short-lived": ["ʃ", "ˈ", "ɔ", "ɹ", "t", "l", "ˈ", "I", "v", "d"],
+        // Context / stress / contraction fixtures.
+        "apple": ["ˈ", "æ", "p", "ᵊ", "l"],
+        "this": ["ð", "ɪ", "s"],
+        "that": ["ð", "æ", "t"],
+        "where": ["w", "ɛ", "ɹ"],
+        "bin": ["b", "ɪ", "n"],
+        "six": ["s", "ˈ", "ɪ", "k", "s"],
     ]
 
     /// Mirrors the real `us_lexicon_cache.json`: the blended `AI`/`US`
@@ -96,13 +103,85 @@ final class KokoroAneEnglishPhonemizerTests: XCTestCase {
         }
     }
 
+    // MARK: - Context-sensitive function words (Misaki get_special_case)
+
+    func testTheReducesByFollowingSound() async throws {
+        let phonemizer = makePhonemizer()
+        let beforeVowel = try await phonemizer.phonemize("the apple") { _ in nil }
+        XCTAssertEqual(beforeVowel, "ði ˈæpᵊl")
+        let beforeConsonant = try await phonemizer.phonemize("the world") { _ in nil }
+        XCTAssertEqual(beforeConsonant, "ðə wˈɜɹld")
+    }
+
+    func testToReducesByFollowingSound() async throws {
+        let phonemizer = makePhonemizer()
+        let beforeVowel = try await phonemizer.phonemize("to apple") { _ in nil }
+        XCTAssertEqual(beforeVowel, "tʊ ˈæpᵊl")
+        let beforeConsonant = try await phonemizer.phonemize("to go") { _ in nil }
+        XCTAssertEqual(beforeConsonant, "tə ɡˈO")
+        let phraseFinal = try await phonemizer.phonemize("go to") { _ in nil }
+        XCTAssertEqual(phraseFinal, "ɡˈO tu")
+    }
+
+    func testArticleAReduces() async throws {
+        let result = try await makePhonemizer().phonemize("a world") { _ in nil }
+        XCTAssertEqual(result, "ɐ wˈɜɹld")
+    }
+
+    func testThatsAlwaysStrong() async throws {
+        let result = try await makePhonemizer().phonemize("that's go") { _ in nil }
+        XCTAssertEqual(result, "ðˈæts ɡˈO")
+    }
+
+    // MARK: - Phrase-final strong forms (Misaki None-keyed gold entries)
+
+    func testWeakWordStrengthensPhraseFinally() async throws {
+        let phonemizer = makePhonemizer()
+        let midPhrase = try await phonemizer.phonemize("this apple") { _ in nil }
+        XCTAssertEqual(midPhrase, "ðɪs ˈæpᵊl")
+        let phraseFinal = try await phonemizer.phonemize("this.") { _ in nil }
+        XCTAssertEqual(phraseFinal, "ðˈɪs.")
+    }
+
+    // MARK: - Capitalization stress (Misaki cap_stresses)
+
+    func testCapitalizedWordGainsSecondaryStress() async throws {
+        let phonemizer = makePhonemizer()
+        let capitalized = try await phonemizer.phonemize("Bin") { _ in nil }
+        XCTAssertEqual(capitalized, "bˌɪn")
+        let allCaps = try await phonemizer.phonemize("BIN") { _ in nil }
+        XCTAssertEqual(allCaps, "bˈɪn")
+        let lowercase = try await phonemizer.phonemize("bin") { _ in nil }
+        XCTAssertEqual(lowercase, "bɪn")
+    }
+
+    // MARK: - Contractions
+
+    func testContractionResolvesStemPlusSuffix() async throws {
+        let phonemizer = makePhonemizer()
+        let whered = try await phonemizer.phonemize("Where'd") { _ in nil }
+        XCTAssertEqual(whered, "wˌɛɹd")
+        let thatll = try await phonemizer.phonemize("that'll") { _ in nil }
+        XCTAssertEqual(thatll, "ðætəl")
+    }
+
+    // MARK: - Residual digit runs
+
+    func testBareDigitTokenReadsAsNumber() async throws {
+        let recorder = FallbackRecorder()
+        let result = try await makePhonemizer().phonemize("6") { await recorder.g2p($0) }
+        XCTAssertEqual(result, "sˈɪks")
+        let recordedEmpty = await recorder.words.isEmpty
+        XCTAssertTrue(recordedEmpty, "digits must not reach BART G2P")
+    }
+
     // MARK: - Weak forms (the issue #691 symptom)
 
     func testFunctionWordToUsesLexiconWeakFormNotG2P() async throws {
         let recorder = FallbackRecorder()
         let result = try await makePhonemizer().phonemize("I want to go") { await recorder.g2p($0) }
 
-        XCTAssertEqual(result, "ˈI wˈɑnt tu ɡˈO")
+        XCTAssertEqual(result, "ˌI wˈɑnt tə ɡˈO")
         XCTAssertFalse(result.contains("tˈO"), "'to' must not get the stressed citation form")
         let recordedEmpty = await recorder.words.isEmpty
         XCTAssertTrue(recordedEmpty, "all words should resolve from the lexicon")
@@ -131,13 +210,13 @@ final class KokoroAneEnglishPhonemizerTests: XCTestCase {
     func testAIOverrideSpellsLetterNamesNotBlendedShape() async throws {
         // `AI` bypasses the blended `ˈAˌI` lexicon entry and reads `A I`.
         let result = try await makePhonemizer().phonemize("AI") { _ in nil }
-        XCTAssertEqual(result, "ˈA ˈI")
+        XCTAssertEqual(result, "ˌAˈI")
     }
 
     func testUSOverrideSpellsLetterNamesNotPronoun() async throws {
         // Uppercase `US` reads `U S`, not the lowercase pronoun `ʌs`.
         let result = try await makePhonemizer().phonemize("US") { _ in nil }
-        XCTAssertEqual(result, "jˈu ˈɛs")
+        XCTAssertEqual(result, "jˌuˈɛs")
     }
 
     func testLowercaseUsStaysPronoun() async throws {
@@ -150,9 +229,9 @@ final class KokoroAneEnglishPhonemizerTests: XCTestCase {
         // `FBI`/`ATP` miss the lexicon and spell out instead of reaching G2P.
         let recorder = FallbackRecorder()
         let fbi = try await makePhonemizer().phonemize("FBI") { await recorder.g2p($0) }
-        XCTAssertEqual(fbi, "ˈɛf bˈi ˈI")
+        XCTAssertEqual(fbi, "ˌɛfbˌiˈI")
         let atp = try await makePhonemizer().phonemize("ATP") { await recorder.g2p($0) }
-        XCTAssertEqual(atp, "ˈA tˈi pˈi")
+        XCTAssertEqual(atp, "ˌAtˌipˈi")
         let recorded = await recorder.words
         XCTAssertTrue(recorded.isEmpty, "initialisms must not reach BART G2P")
     }
@@ -170,9 +249,9 @@ final class KokoroAneEnglishPhonemizerTests: XCTestCase {
         let phonemizer = KokoroAneEnglishPhonemizer(allowedPunctuation: punctuation)
         let recorder = FallbackRecorder()
         let result = try await phonemizer.phonemize("FBI") { await recorder.g2p($0) }
-        XCTAssertEqual(result, "<g2p:fbi>")
+        XCTAssertEqual(result, "<g2p:FBI>")
         let recorded = await recorder.words
-        XCTAssertEqual(recorded, ["fbi"])
+        XCTAssertEqual(recorded, ["FBI"])
     }
 
     func testOverrideFallsBackToLexiconWhenLettersMissing() async throws {
@@ -185,7 +264,7 @@ final class KokoroAneEnglishPhonemizerTests: XCTestCase {
         )
         let recorder = FallbackRecorder()
         let result = try await phonemizer.phonemize("US") { await recorder.g2p($0) }
-        XCTAssertEqual(result, "ˌʌs")
+        XCTAssertEqual(result, "ˈʌs")
         let recorded = await recorder.words
         XCTAssertTrue(recorded.isEmpty, "override fall-through must use the lexicon, not G2P")
     }
@@ -196,9 +275,9 @@ final class KokoroAneEnglishPhonemizerTests: XCTestCase {
         // are unit-tested in EnglishInitialismsTests.)
         let recorder = FallbackRecorder()
         let result = try await makePhonemizer().phonemize("ABCDEF") { await recorder.g2p($0) }
-        XCTAssertEqual(result, "<g2p:abcdef>")
+        XCTAssertEqual(result, "<g2p:ABCDEF>")
         let recorded = await recorder.words
-        XCTAssertEqual(recorded, ["abcdef"])
+        XCTAssertEqual(recorded, ["ABCDEF"])
     }
 
     // MARK: - Possessives and regular plurals (Misaki stem_s)
@@ -231,7 +310,7 @@ final class KokoroAneEnglishPhonemizerTests: XCTestCase {
     func testInitialismPossessive() async throws {
         // `AI's` stems to the letter-name override and takes `z`.
         let result = try await makePhonemizer().phonemize("AI's") { _ in nil }
-        XCTAssertEqual(result, "ˈA ˈIz")
+        XCTAssertEqual(result, "ˌAˈIz")
     }
 
     func testDoubleSEndingIsNotStemmed() async throws {
@@ -247,9 +326,9 @@ final class KokoroAneEnglishPhonemizerTests: XCTestCase {
         // `Jonas` isn't a plural of anything known — no fabricated stem.
         let recorder = FallbackRecorder()
         let result = try await makePhonemizer().phonemize("Jonas") { await recorder.g2p($0) }
-        XCTAssertEqual(result, "<g2p:jonas>")
+        XCTAssertEqual(result, "<g2p:Jonas>")
         let recorded = await recorder.words
-        XCTAssertEqual(recorded, ["jonas"])
+        XCTAssertEqual(recorded, ["Jonas"])
     }
 
     // MARK: - Past tense and progressive inflections (Misaki stem_ed/stem_ing)
@@ -275,7 +354,7 @@ final class KokoroAneEnglishPhonemizerTests: XCTestCase {
         let result = try await makePhonemizer().phonemize("walked priced gazed wanted needed heated freed") {
             await recorder.g2p($0)
         }
-        XCTAssertEqual(result, "wˈɔkt pɹˈIst ɡˈAzd wˈɑntᵻd nˈidᵻd hˈiɾᵻd fɹˈid")
+        XCTAssertEqual(result, "wˈɔkt pɹˈIst ɡˈAzd wˈɑntᵻd nˈidᵻd hˈiTᵻd fɹˈid")
         let recorded = await recorder.words
         XCTAssertTrue(recorded.isEmpty)
     }
@@ -285,13 +364,13 @@ final class KokoroAneEnglishPhonemizerTests: XCTestCase {
         let result = try await makePhonemizer().phonemize("gridd breed") { await recorder.g2p($0) }
         XCTAssertEqual(result, "<g2p:gridd> <g2p:breed>")
         let recorded = await recorder.words
-        XCTAssertEqual(recorded, ["gridd", "breed"])
+        XCTAssertEqual(recorded, ["breed", "gridd"])
     }
 
     func testProgressiveStemCandidatesAndTapRule() async throws {
         let recorder = FallbackRecorder()
         let result = try await makePhonemizer().phonemize("walking making running heating") { await recorder.g2p($0) }
-        XCTAssertEqual(result, "wˈɔkɪŋ mˈAkɪŋ ɹˈʌnɪŋ hˈiɾɪŋ")
+        XCTAssertEqual(result, "wˈɔkɪŋ mˈAkɪŋ ɹˈʌnɪŋ hˈiTɪŋ")
         let recorded = await recorder.words
         XCTAssertTrue(recorded.isEmpty)
     }
@@ -307,7 +386,7 @@ final class KokoroAneEnglishPhonemizerTests: XCTestCase {
     func testCompoundPossessive() async throws {
         // Trailing `'s` on a resolvable compound reads the compound + `z`.
         let result = try await makePhonemizer().phonemize("MacReader's") { _ in nil }
-        XCTAssertEqual(result, "mæk ɹˈidəɹz")
+        XCTAssertEqual(result, "mˌækɹˈidəɹz")
     }
 
     // MARK: - Compound tokens (camelCase / letter+digit)
@@ -315,7 +394,7 @@ final class KokoroAneEnglishPhonemizerTests: XCTestCase {
     func testCamelCaseCompoundReadsAsItsParts() async throws {
         let recorder = FallbackRecorder()
         let result = try await makePhonemizer().phonemize("MacReader") { await recorder.g2p($0) }
-        XCTAssertEqual(result, "mæk ɹˈidəɹ")
+        XCTAssertEqual(result, "mˌækɹˈidəɹ")
         let recorded = await recorder.words
         XCTAssertTrue(recorded.isEmpty, "resolved compounds must not reach BART G2P")
     }
@@ -323,14 +402,14 @@ final class KokoroAneEnglishPhonemizerTests: XCTestCase {
     func testLetterDigitCompoundSpellsAcronymAndNumber() async throws {
         let recorder = FallbackRecorder()
         let result = try await makePhonemizer().phonemize("CASP14") { await recorder.g2p($0) }
-        XCTAssertEqual(result, "sˈi ˈA ˈɛs pˈi fɔɹtˈin")
+        XCTAssertEqual(result, "sˌiˌAˌɛspˈi fɔɹtˈin")
         let recorded = await recorder.words
         XCTAssertTrue(recorded.isEmpty)
     }
 
     func testShortLetterDigitCompound() async throws {
         let result = try await makePhonemizer().phonemize("MP3") { _ in nil }
-        XCTAssertEqual(result, "ˈɛm pˈi θɹˈi")
+        XCTAssertEqual(result, "ˌɛmpˈi θɹˈi")
     }
 
     func testCaseSensitiveLexiconEntryBeatsCompoundSplit() async throws {
@@ -344,18 +423,18 @@ final class KokoroAneEnglishPhonemizerTests: XCTestCase {
         // before, not a mix of split parts and per-part G2P.
         let recorder = FallbackRecorder()
         let result = try await makePhonemizer().phonemize("McGregor") { await recorder.g2p($0) }
-        XCTAssertEqual(result, "<g2p:mcgregor>")
+        XCTAssertEqual(result, "<g2p:McGregor>")
         let recorded = await recorder.words
-        XCTAssertEqual(recorded, ["mcgregor"])
+        XCTAssertEqual(recorded, ["McGregor"])
     }
 
     func testApostropheWordSkipsCompoundSplit() async throws {
         // A possessive must not read its trailing `s` as a letter name.
         let recorder = FallbackRecorder()
         let result = try await makePhonemizer().phonemize("Zorblax's") { await recorder.g2p($0) }
-        XCTAssertEqual(result, "<g2p:zorblax's>")
+        XCTAssertEqual(result, "<g2p:Zorblax's>")
         let recorded = await recorder.words
-        XCTAssertEqual(recorded, ["zorblax's"])
+        XCTAssertEqual(recorded, ["Zorblax's"])
     }
 
     func testCompoundSegmentKeepsTheOriginalWord() async throws {
@@ -368,15 +447,15 @@ final class KokoroAneEnglishPhonemizerTests: XCTestCase {
     func testOOVWordFallsBackToG2PWithNormalizedSpelling() async throws {
         let recorder = FallbackRecorder()
         let result = try await makePhonemizer().phonemize("I want Zorblax") { await recorder.g2p($0) }
-        XCTAssertEqual(result, "ˈI wˈɑnt <g2p:zorblax>")
+        XCTAssertEqual(result, "ˌI wˈɑnt <g2p:Zorblax>")
         let recordedWords = await recorder.words
-        XCTAssertEqual(recordedWords, ["zorblax"])
+        XCTAssertEqual(recordedWords, ["Zorblax"])
     }
 
     func testCustomLexiconOverridesEverything() async throws {
         let phonemizer = makePhonemizer(custom: ["to": "tə"])
         let result = try await phonemizer.phonemize("I want to go") { _ in nil }
-        XCTAssertEqual(result, "ˈI wˈɑnt tə ɡˈO")
+        XCTAssertEqual(result, "ˌI wˈɑnt tə ɡˈO")
     }
 
     func testCustomLexiconExactSpellingBeatsLowercased() async throws {
@@ -511,8 +590,10 @@ final class KokoroAneEnglishPhonemizerTests: XCTestCase {
         let recorder = FallbackRecorder()
         let result = try await phonemizer.phonemize("I want to go") { await recorder.g2p($0) }
         let recordedAll = await recorder.words
-        XCTAssertEqual(recordedAll, ["i", "want", "to", "go"])
-        XCTAssertTrue(result.contains("tˈO"), "G2P-only path keeps the old citation form")
+        // `I` and `to` resolve via the Misaki special cases without any
+        // lexicon; resolution runs right-to-left, so `go` records first.
+        XCTAssertEqual(recordedAll, ["go", "want"])
+        XCTAssertTrue(result.hasPrefix("ˌI"), "the pronoun special case needs no lexicon")
     }
 
     // MARK: - POS-aware heteronyms
