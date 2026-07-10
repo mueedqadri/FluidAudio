@@ -91,31 +91,6 @@ struct KokoroAneEnglishPhonemizer: Sendable {
         var phonemes: String
     }
 
-    /// Keep the runtime trace focused on pronunciation-sensitive tokens rather
-    /// than recording a whole document's text. Capitalized words catch names;
-    /// suffixes cover the dynamic Misaki stem passes at issue here.
-    private static func shouldLogResolution(for word: String) -> Bool {
-        let lowered = word.lowercased()
-        return word != lowered
-            || word.contains(where: { phoneticApostropheCharacters.contains($0) })
-            || lowered.hasSuffix("ed")
-            || lowered.hasSuffix("ing")
-            || (lowered.count > 2 && lowered.hasSuffix("s"))
-    }
-
-    private static func logResolution(
-        token: String,
-        normalized: String,
-        posTag: String?,
-        route: String,
-        phonemes: String
-    ) {
-        guard shouldLogResolution(for: token) else { return }
-        logger.notice(
-            "pronunciation.resolve token='\(token)' normalized='\(normalized)' "
-                + "pos='\(posTag ?? "none")' route='\(route)' ipa='\(phonemes)'")
-    }
-
     /// Convert text to a Misaki-style IPA string. Words are joined with
     /// single spaces; kept punctuation attaches to the preceding word
     /// (`"Hello, world!"` → `"həlˈO, wˈɜɹld!"` shape).
@@ -364,22 +339,10 @@ struct KokoroAneEnglishPhonemizer: Sendable {
         if customLexicon[word] == nil, customLexicon[normalized] == nil,
             let special = specialCase(word, posTag: posTag, context: context)
         {
-            Self.logResolution(
-                token: word,
-                normalized: normalized,
-                posTag: posTag,
-                route: "special-case",
-                phonemes: special)
             return special
         }
 
         if let ipa = resolveFromLexicon(word, posTag: posTag, context: context) {
-            Self.logResolution(
-                token: word,
-                normalized: normalized,
-                posTag: posTag,
-                route: "lexicon-or-stem",
-                phonemes: ipa)
             return ipa
         }
 
@@ -387,12 +350,6 @@ struct KokoroAneEnglishPhonemizer: Sendable {
         // "that'll") — Misaki's spaCy tokenizer splits them and resolves
         // the pieces from the gold suffix entries, joined tightly.
         if let contraction = resolveContraction(word, posTag: posTag, context: context) {
-            Self.logResolution(
-                token: word,
-                normalized: normalized,
-                posTag: posTag,
-                route: "contraction",
-                phonemes: contraction)
             return contraction
         }
 
@@ -403,12 +360,6 @@ struct KokoroAneEnglishPhonemizer: Sendable {
         // otherwise keep the whole-token BART path so lexicon-shaped names
         // (`McGregor`) aren't chopped into worse fragments.
         if let compound = resolveCompound(word) {
-            Self.logResolution(
-                token: word,
-                normalized: normalized,
-                posTag: posTag,
-                route: "compound",
-                phonemes: compound)
             return compound
         }
 
@@ -420,12 +371,6 @@ struct KokoroAneEnglishPhonemizer: Sendable {
             let rendered = spoken.compactMap { resolveFromLexicon($0) }
             if !rendered.isEmpty, rendered.count == spoken.count {
                 let ipa = rendered.joined(separator: " ")
-                Self.logResolution(
-                    token: word,
-                    normalized: normalized,
-                    posTag: posTag,
-                    route: "digits",
-                    phonemes: ipa)
                 return ipa
             }
         }
@@ -438,14 +383,7 @@ struct KokoroAneEnglishPhonemizer: Sendable {
             word.map { phoneticApostropheCharacters.contains($0) ? "'" : $0 })
         do {
             if let phonemes = try await fallback(fallbackSpelling), !phonemes.isEmpty {
-                let ipa = phonemes.joined()
-                Self.logResolution(
-                    token: word,
-                    normalized: normalized,
-                    posTag: posTag,
-                    route: "bart-g2p",
-                    phonemes: ipa)
-                return ipa
+                return phonemes.joined()
             }
             Self.logger.warning(
                 "pronunciation.resolve token='\(word)' normalized='\(normalized)' "
@@ -684,12 +622,6 @@ struct KokoroAneEnglishPhonemizer: Sendable {
         for stem in stems {
             if let ipa = resolveFromLexicon(stem, posTag: posTag, context: context) {
                 let resolved = Self.appendSibilant(to: ipa)
-                Self.logResolution(
-                    token: word,
-                    normalized: Self.normalizeKey(word),
-                    posTag: posTag,
-                    route: "stem_s stem='\(stem)' base='\(ipa)'",
-                    phonemes: resolved)
                 return resolved
             }
         }
@@ -757,12 +689,6 @@ struct KokoroAneEnglishPhonemizer: Sendable {
         for stem in stems {
             if let ipa = resolveFromLexicon(stem, posTag: posTag, context: context) {
                 let resolved = Self.appendPastTense(to: ipa)
-                Self.logResolution(
-                    token: word,
-                    normalized: Self.normalizeKey(word),
-                    posTag: posTag,
-                    route: "stem_ed stem='\(stem)' base='\(ipa)'",
-                    phonemes: resolved)
                 return resolved
             }
         }
@@ -797,12 +723,6 @@ struct KokoroAneEnglishPhonemizer: Sendable {
                 // stem with no stress marks gains a secondary before `ɪŋ`.
                 let stressed = word == lowered ? MisakiStress.apply(ipa, 0.5) : ipa
                 let resolved = Self.appendProgressive(to: stressed)
-                Self.logResolution(
-                    token: word,
-                    normalized: Self.normalizeKey(word),
-                    posTag: posTag,
-                    route: "stem_ing stem='\(stem)' base='\(ipa)'",
-                    phonemes: resolved)
                 return resolved
             }
         }
