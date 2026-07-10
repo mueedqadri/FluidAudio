@@ -92,6 +92,10 @@ previous run: 121 words improved, **0 regressed**.
   the reference cannot (footnote digits, accented spellings).
 - **Times**: `6:00 a.m.` is deliberately normalized here (`six o'clock a m`);
   canonical Misaki has no time handling and reads raw digits. Ours is kept.
+- **Rare title abbreviations**: `Sen.`/`Gen.`/`Rep.`/`Adm.`/… deliberately
+  expand to their spoken word (`senator`); canonical Misaki reads the stem
+  through the lexicon (`sˈɛn`, and `Adm.` comes out as "Adam"). `Mr.`/`Mrs.`/
+  `Ms.`/`Dr.` match canonical exactly (`EnglishTitleAbbreviations`).
 
 ## Known defect: hyphens adjoining digits
 

@@ -342,6 +342,17 @@ struct KokoroAneEnglishPhonemizer: Sendable {
             return special
         }
 
+        // Title tokens merged by the splitter (`Mr.`, `Sen.`) read as their
+        // spoken expansion; probing the lexicon with the stripped stem would
+        // misread most of them (`Sen.` → "sen", `Adm.` → "Adam").
+        if customLexicon[word] == nil, customLexicon[normalized] == nil,
+            let spoken = EnglishTitleAbbreviations.expansion(forTitleToken: word),
+            let ipa = resolveFromLexicon(spoken, posTag: posTag, context: context)
+                ?? EnglishTitleAbbreviations.inlineIPA[spoken]
+        {
+            return ipa
+        }
+
         if let ipa = resolveFromLexicon(word, posTag: posTag, context: context) {
             return ipa
         }
@@ -927,6 +938,16 @@ struct KokoroAneEnglishPhonemizer: Sendable {
                 if current.isEmpty { currentStart = index }
                 current.append(ch)
             } else {
+                // spaCy-style tokenizer exception: a title abbreviation keeps
+                // its period inside the token (`Mr.`) when a capitalized name
+                // follows, so the period never becomes a pause prosody token.
+                if ch == ".",
+                    EnglishTitleAbbreviations.mergesPeriod(
+                        afterWord: current, in: text, periodIndex: index)
+                {
+                    current.append(ch)
+                    continue
+                }
                 flushCurrent(endingAt: index)
                 out.append((token: String(ch), range: index..<text.index(after: index)))
             }

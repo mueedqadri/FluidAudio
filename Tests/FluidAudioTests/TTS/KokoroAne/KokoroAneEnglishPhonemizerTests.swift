@@ -55,6 +55,8 @@ final class KokoroAneEnglishPhonemizerTests: XCTestCase {
         "where": ["w", "ɛ", "ɹ"],
         "bin": ["b", "ɪ", "n"],
         "six": ["s", "ˈ", "ɪ", "k", "s"],
+        // Title-abbreviation expansions (Mr. → mister).
+        "mister": ["m", "ˈ", "ɪ", "s", "t", "ə", "ɹ"],
     ]
 
     /// Mirrors the real `us_lexicon_cache.json`: the blended `AI`/`US`
@@ -153,6 +155,40 @@ final class KokoroAneEnglishPhonemizerTests: XCTestCase {
         XCTAssertEqual(allCaps, "bˈɪn")
         let lowercase = try await phonemizer.phonemize("bin") { _ in nil }
         XCTAssertEqual(lowercase, "bɪn")
+    }
+
+    // MARK: - Title abbreviations (spaCy tokenizer exceptions)
+
+    func testSplitWordsMergesTitlePeriodOnlyBeforeCapitalizedWord() {
+        XCTAssertEqual(
+            KokoroAneEnglishPhonemizer.splitWords("Mr. Bin"),
+            ["Mr.", "Bin"])
+        // Sentence-final title: the period stays a prosody token.
+        XCTAssertEqual(
+            KokoroAneEnglishPhonemizer.splitWords("the Dr."),
+            ["the", "Dr", "."])
+        // Lowercase nouns that spell like titles keep their period.
+        XCTAssertEqual(
+            KokoroAneEnglishPhonemizer.splitWords("a good rep. Everyone"),
+            ["a", "good", "rep", ".", "Everyone"])
+    }
+
+    func testTitleBeforeNameReadsSpokenExpansionWithoutPause() async throws {
+        let phonemizer = makePhonemizer()
+        let mister = try await phonemizer.phonemize("Mr. Bin") { _ in nil }
+        XCTAssertEqual(mister, "mˈɪstəɹ bˌɪn")
+
+        // `miz` is missing from the Misaki lexicon; the inline IPA covers it.
+        let miz = try await phonemizer.phonemize("Ms. Bin") { _ in nil }
+        XCTAssertEqual(miz, "mˈɪz bˌɪn")
+
+        let segments = try await phonemizer.phonemizeSegments("Mr. Bin") { _ in nil }
+        XCTAssertEqual(
+            segments,
+            [
+                .init(word: "Mr.", phonemes: "mˈɪstəɹ"),
+                .init(word: "Bin", phonemes: "bˌɪn"),
+            ])
     }
 
     // MARK: - Contractions
