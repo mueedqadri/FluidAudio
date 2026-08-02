@@ -241,6 +241,8 @@ public enum TTSAsrVerifyCommand {
             var werValues: [Double] = []
             var totalRefWords = 0
             var totalEditDistance = 0
+            var totalRefSentenceEnds = 0
+            var totalHypSentenceEnds = 0
 
             for (idx, phrase) in phrases.enumerated() {
                 let label = String(format: "[%02d/%02d]", idx + 1, phrases.count)
@@ -282,12 +284,22 @@ public enum TTSAsrVerifyCommand {
                 totalSynthS += synthS
                 totalAsrS += asrS
 
+                // Seam signal. A chunker that ends a fragment mid-clause makes
+                // the model perform a full stop there, and the transcriber
+                // duly writes one — so the hypothesis carries more sentence
+                // endings than the reference. WER cannot see this (the words
+                // survive), which is why it is tracked separately.
+                let refEnds = sentenceEndCount(phrase)
+                let hypEnds = sentenceEndCount(transcription.text)
+                totalRefSentenceEnds += refEnds
+                totalHypSentenceEnds += hypEnds
+
                 logger.info("  ref: \(phrase)")
                 logger.info("  hyp: \(transcription.text)")
                 logger.info(
                     String(
-                        format: "  wer=%.1f%%  audio=%.2fs  synth=%.2fs  asr=%.2fs",
-                        m.wer * 100, audioS, synthS, asrS))
+                        format: "  wer=%.1f%%  ends=%d/%d (%+d)  audio=%.2fs  synth=%.2fs  asr=%.2fs",
+                        m.wer * 100, hypEnds, refEnds, hypEnds - refEnds, audioS, synthS, asrS))
 
                 if audioDirURL == nil {
                     try? FileManager.default.removeItem(at: wavURL)
@@ -303,6 +315,9 @@ public enum TTSAsrVerifyCommand {
                     "substitutions": m.substitutions,
                     "ref_word_count": m.totalWords,
                     "ref_char_count": phrase.count,
+                    "ref_sentence_ends": refEnds,
+                    "hyp_sentence_ends": hypEnds,
+                    "excess_sentence_ends": hypEnds - refEnds,
                     "audio_s": audioS,
                     "synth_s": synthS,
                     "asr_s": asrS,
@@ -335,11 +350,20 @@ public enum TTSAsrVerifyCommand {
                 totalRefWords == 0
                 ? 0.0 : Double(totalEditDistance) / Double(totalRefWords)
             let rtfx = totalSynthS > 0 ? totalAudioS / totalSynthS : 0
+            let excessEnds = totalHypSentenceEnds - totalRefSentenceEnds
+            let spuriousRate =
+                totalRefSentenceEnds == 0
+                ? 0.0 : Double(excessEnds) / Double(totalRefSentenceEnds)
 
             logger.info("--- Summary ---")
             logger.info("  phrases: \(phrases.count)")
             logger.info(String(format: "  macro WER: %.2f%%", macroWer * 100))
             logger.info(String(format: "  micro WER: %.2f%%", microWer * 100))
+            logger.info(
+                String(
+                    format: "  sentence ends: %d heard vs %d written (%+d, %+.0f%%)",
+                    totalHypSentenceEnds, totalRefSentenceEnds, excessEnds,
+                    spuriousRate * 100))
             logger.info(String(format: "  total audio: %.2fs", totalAudioS))
             logger.info(String(format: "  total synth: %.2fs (RTFx %.2fx)", totalSynthS, rtfx))
             logger.info(String(format: "  total asr:   %.2fs", totalAsrS))
@@ -356,6 +380,10 @@ public enum TTSAsrVerifyCommand {
                     "total_synth_s": totalSynthS,
                     "total_asr_s": totalAsrS,
                     "realtime_speed": rtfx,
+                    "ref_sentence_ends": totalRefSentenceEnds,
+                    "hyp_sentence_ends": totalHypSentenceEnds,
+                    "excess_sentence_ends": excessEnds,
+                    "spurious_boundary_rate": spuriousRate,
                 ]
                 if backend == .supertonic3 {
                     // Chunking is what this backend is usually being measured
@@ -396,6 +424,18 @@ public enum TTSAsrVerifyCommand {
         case "supertonic3", "supertonic-3", "sup3", "supertonic": return .supertonic3
         case "kokoro-ane", "kokoroane", "kokoro", "lai": return .kokoroAne
         default: return .kokoroAne
+        }
+    }
+
+    /// Count sentence-terminal punctuation. Approximate by design — it does
+    /// not special-case abbreviations or decimals, so corpora meant for this
+    /// metric should avoid them (see `Benchmarks/Supertonic3`). Comparing the
+    /// same corpus before and after a change keeps that bias constant.
+    private static func sentenceEndCount(_ text: String) -> Int {
+        text.reduce(into: 0) { count, character in
+            if character == "." || character == "!" || character == "?" || character == "…" {
+                count += 1
+            }
         }
     }
 
