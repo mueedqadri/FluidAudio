@@ -18,12 +18,35 @@ public enum TTSAsrVerifyCommand {
 
     private static let logger = AppLogger(category: "TTSAsrVerifyCommand")
 
+    /// One synthesized phrase, normalized across backends so the verify loop
+    /// stays backend-agnostic. `kokoro` carries the per-stage detail only the
+    /// Kokoro chain reports; Supertonic leaves it `nil` rather than emitting
+    /// zeroed fields that would read as real measurements.
+    private struct Utterance: Sendable {
+        let samples: [Float]
+        let sampleRate: Int
+        let kokoro: KokoroDetail?
+    }
+
+    private struct KokoroDetail: Sendable {
+        let encoderTokens: Int
+        let acousticFrames: Int
+        let timings: KokoroAneStageTimings
+    }
+
     public static func run(arguments: [String]) async {
         var backendName = "kokoro-ane"
         var textsFile: String?
         var voice: String = TtsConstants.recommendedVoice
         var outputJson: String?
         var audioDir: String?
+        // Supertonic-3 knobs. Defaults mirror `Supertonic3Constants` so a bare
+        // `--backend supertonic3` run matches what the app ships.
+        var language = "en"
+        var voiceStylePath: String?
+        var totalSteps = Supertonic3Constants.defaultTotalSteps
+        var speed = Supertonic3Constants.defaultSpeed
+        var silence = Supertonic3Constants.defaultSilenceDuration
 
         var i = 0
         while i < arguments.count {
@@ -52,6 +75,31 @@ public enum TTSAsrVerifyCommand {
             case "--audio-dir":
                 if i + 1 < arguments.count {
                     audioDir = arguments[i + 1]
+                    i += 1
+                }
+            case "--language":
+                if i + 1 < arguments.count {
+                    language = arguments[i + 1].lowercased()
+                    i += 1
+                }
+            case "--voice-style":
+                if i + 1 < arguments.count {
+                    voiceStylePath = arguments[i + 1]
+                    i += 1
+                }
+            case "--total-steps":
+                if i + 1 < arguments.count, let v = Int(arguments[i + 1]), v > 0 {
+                    totalSteps = v
+                    i += 1
+                }
+            case "--speed":
+                if i + 1 < arguments.count, let v = Float(arguments[i + 1]), v > 0 {
+                    speed = v
+                    i += 1
+                }
+            case "--silence":
+                if i + 1 < arguments.count, let v = Float(arguments[i + 1]), v >= 0 {
+                    silence = v
                     i += 1
                 }
             case "--help", "-h":
@@ -83,21 +131,92 @@ public enum TTSAsrVerifyCommand {
         logger.info("Loaded \(phrases.count) phrase(s) from \(textsFile)")
 
         let backend = parseBackend(backendName)
-        guard backend == .kokoroAne else {
+        guard backend == .kokoroAne || backend == .supertonic3 else {
             logger.error(
-                "tts-asr-verify currently supports --backend kokoro-ane only (got '\(backendName)')")
+                "tts-asr-verify supports --backend kokoro-ane or supertonic3 "
+                    + "(got '\(backendName)')")
             exit(1)
         }
 
-        let resolvedVoice =
-            voice == TtsConstants.recommendedVoice
-            ? KokoroAneConstants.defaultVoice : voice
-
         do {
-            // Set up TTS once.
-            let manager = KokoroAneManager(defaultVoice: resolvedVoice)
-            try await manager.initialize()
-            logger.info("KokoroAne initialized (voice=\(resolvedVoice))")
+            // Set up TTS once. Both branches resolve a voice and hand back a
+            // synthesizer closure; everything downstream is backend-agnostic.
+            let resolvedVoice: String
+            let synthesize: @Sendable (String) async throws -> Utterance
+
+            switch backend {
+            case .supertonic3:
+                // Immutable copies so the synthesizer closure can be @Sendable.
+                let stLanguage = language
+                let stTotalSteps = totalSteps
+                let stSpeed = speed
+                let stSilence = silence
+
+                let manager = Supertonic3Manager()
+                try await manager.initialize()
+
+                // An explicit --voice-style <path> wins; otherwise --voice
+                // names a built-in preset (F1-F5, M1-M5), defaulting to M1.
+                let style: Supertonic3VoiceStyle
+                if let voiceStylePath {
+                    style = try Supertonic3VoiceStyle.load(
+                        from: resolveURL(voiceStylePath, isDirectory: false))
+                    resolvedVoice = voiceStylePath
+                } else {
+                    let selected = Supertonic3Voice(name: voice) ?? .default
+                    if Supertonic3Voice(name: voice) == nil,
+                        voice != TtsConstants.recommendedVoice
+                    {
+                        logger.warning(
+                            "Unknown Supertonic-3 voice '\(voice)'; using "
+                                + "\(Supertonic3Voice.default.rawValue).")
+                    }
+                    style = try await Supertonic3ResourceDownloader.loadVoiceStyle(selected)
+                    resolvedVoice = selected.rawValue
+                }
+
+                guard Supertonic3Constants.availableLanguages.contains(stLanguage) else {
+                    logger.error("Supertonic-3 does not support language '\(stLanguage)'")
+                    exit(1)
+                }
+
+                logger.info(
+                    "Supertonic-3 initialized (voice=\(resolvedVoice) lang=\(stLanguage) "
+                        + "steps=\(stTotalSteps) speed=\(String(format: "%.2f", stSpeed)) "
+                        + "silence=\(String(format: "%.2f", stSilence))s)")
+
+                synthesize = { phrase in
+                    let result = try await manager.synthesize(
+                        text: phrase, language: stLanguage, style: style,
+                        totalSteps: stTotalSteps, speed: stSpeed,
+                        silenceDuration: stSilence)
+                    return Utterance(
+                        samples: result.samples,
+                        sampleRate: Supertonic3Constants.sampleRate,
+                        kokoro: nil)
+                }
+
+            default:
+                let kokoroVoice =
+                    voice == TtsConstants.recommendedVoice
+                    ? KokoroAneConstants.defaultVoice : voice
+                let manager = KokoroAneManager(defaultVoice: kokoroVoice)
+                try await manager.initialize()
+                resolvedVoice = kokoroVoice
+                logger.info("KokoroAne initialized (voice=\(kokoroVoice))")
+
+                synthesize = { phrase in
+                    let detailed = try await manager.synthesizeDetailed(
+                        text: phrase, voice: kokoroVoice, speed: 1.0)
+                    return Utterance(
+                        samples: detailed.samples,
+                        sampleRate: detailed.sampleRate,
+                        kokoro: KokoroDetail(
+                            encoderTokens: detailed.encoderTokens,
+                            acousticFrames: detailed.acousticFrames,
+                            timings: detailed.timings))
+                }
+            }
 
             // Set up ASR once.
             let asrModels = try await AsrModels.downloadAndLoad()
@@ -128,10 +247,9 @@ public enum TTSAsrVerifyCommand {
                 logger.info("\(label) Synthesizing: \(phrase)")
 
                 let synth0 = Date()
-                let detailed = try await manager.synthesizeDetailed(
-                    text: phrase, voice: resolvedVoice, speed: 1.0)
+                let utterance = try await synthesize(phrase)
                 let wav = try AudioWAV.data(
-                    from: detailed.samples, sampleRate: Double(detailed.sampleRate))
+                    from: utterance.samples, sampleRate: Double(utterance.sampleRate))
                 let synthS = Date().timeIntervalSince(synth0)
 
                 // Persist WAV (audioDir if set, else temp file).
@@ -145,7 +263,7 @@ public enum TTSAsrVerifyCommand {
                 }
                 try wav.write(to: wavURL)
 
-                let audioS = Double(detailed.samples.count) / Double(detailed.sampleRate)
+                let audioS = Double(utterance.samples.count) / Double(utterance.sampleRate)
 
                 // Transcribe.
                 let asr0 = Date()
@@ -175,7 +293,7 @@ public enum TTSAsrVerifyCommand {
                     try? FileManager.default.removeItem(at: wavURL)
                 }
 
-                perPhrase.append([
+                var entry: [String: Any] = [
                     "index": idx + 1,
                     "reference": phrase,
                     "hypothesis": transcription.text,
@@ -184,23 +302,27 @@ public enum TTSAsrVerifyCommand {
                     "deletions": m.deletions,
                     "substitutions": m.substitutions,
                     "ref_word_count": m.totalWords,
+                    "ref_char_count": phrase.count,
                     "audio_s": audioS,
                     "synth_s": synthS,
                     "asr_s": asrS,
-                    "encoder_tokens": detailed.encoderTokens,
-                    "acoustic_frames": detailed.acousticFrames,
                     "wav_path": audioDirURL == nil ? "" : wavURL.path,
-                    "stage_timings_ms": [
-                        "albert": detailed.timings.albert,
-                        "post_albert": detailed.timings.postAlbert,
-                        "alignment": detailed.timings.alignment,
-                        "prosody": detailed.timings.prosody,
-                        "noise": detailed.timings.noise,
-                        "vocoder": detailed.timings.vocoder,
-                        "tail": detailed.timings.tail,
-                        "total": detailed.timings.totalMs,
-                    ],
-                ])
+                ]
+                if let k = utterance.kokoro {
+                    entry["encoder_tokens"] = k.encoderTokens
+                    entry["acoustic_frames"] = k.acousticFrames
+                    entry["stage_timings_ms"] = [
+                        "albert": k.timings.albert,
+                        "post_albert": k.timings.postAlbert,
+                        "alignment": k.timings.alignment,
+                        "prosody": k.timings.prosody,
+                        "noise": k.timings.noise,
+                        "vocoder": k.timings.vocoder,
+                        "tail": k.timings.tail,
+                        "total": k.timings.totalMs,
+                    ]
+                }
+                perPhrase.append(entry)
             }
 
             await asr.cleanup()
@@ -224,7 +346,7 @@ public enum TTSAsrVerifyCommand {
 
             // Write JSON.
             if let outputJson {
-                let summary: [String: Any] = [
+                var summary: [String: Any] = [
                     "backend": backendName,
                     "voice": resolvedVoice,
                     "phrase_count": phrases.count,
@@ -235,6 +357,18 @@ public enum TTSAsrVerifyCommand {
                     "total_asr_s": totalAsrS,
                     "realtime_speed": rtfx,
                 ]
+                if backend == .supertonic3 {
+                    // Chunking is what this backend is usually being measured
+                    // for, so record the knobs that change where seams land.
+                    summary["language"] = language
+                    summary["total_steps"] = totalSteps
+                    summary["speed"] = speed
+                    summary["silence_s"] = silence
+                    summary["max_chunk_chars"] =
+                        Supertonic3Constants.cjkLanguages.contains(language)
+                        ? Supertonic3Constants.maxChunkLengthCJK
+                        : Supertonic3Constants.maxChunkLengthLatin
+                }
                 let report: [String: Any] = [
                     "summary": summary,
                     "phrases": perPhrase,
@@ -259,6 +393,7 @@ public enum TTSAsrVerifyCommand {
     private static func parseBackend(_ name: String) -> TtsBackend {
         switch name.lowercased() {
         case "pocket", "pockettts", "pocket-tts": return .pocketTts
+        case "supertonic3", "supertonic-3", "sup3", "supertonic": return .supertonic3
         case "kokoro-ane", "kokoroane", "kokoro", "lai": return .kokoroAne
         default: return .kokoroAne
         }
@@ -292,19 +427,30 @@ public enum TTSAsrVerifyCommand {
             per-phrase + aggregate WER, and writes a JSON report.
 
             Options:
-              --backend <name>      TTS backend: kokoro-ane (default)
+              --backend <name>      TTS backend: kokoro-ane (default) | supertonic3
               --texts-file <path>   Phrases file (required)
-              --voice <name>        Voice name (default: af_heart)
+              --voice <name>        Voice name (kokoro: af_heart; supertonic: M1)
               --output-json <path>  Output JSON report path
               --audio-dir <path>    Optional dir to keep generated WAVs
               --help, -h            Show this help
 
+            Supertonic-3 only:
+              --language <code>     ISO language code (default: en)
+              --voice-style <path>  Voice style JSON; overrides --voice
+              --total-steps <n>     Denoising steps (default: 8)
+              --speed <x>           Speed multiplier (default: 1.05)
+              --silence <s>         Inter-chunk silence seconds (default: 0.05)
+
             Example:
               fluidaudio tts-asr-verify \\
-                  --backend kokoro-ane \\
-                  --texts-file phrases.txt \\
-                  --voice af_heart \\
+                  --backend supertonic3 \\
+                  --texts-file paragraphs.txt \\
+                  --voice M1 \\
                   --output-json verify-results.json
+
+            Note: Supertonic-3 caps chunks at 70 characters (57 for CJK), so a
+            corpus of long paragraphs measures the multi-chunk seam path while
+            short phrases measure the single-chunk path. Run both.
             """
         )
     }

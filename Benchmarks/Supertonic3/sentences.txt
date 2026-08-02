@@ -1,0 +1,23 @@
+# Supertonic-3 seam corpus — single-chunk control.
+#
+# Every line stays under the 70-character Latin chunk cap, so the chunker
+# emits exactly one fragment and no seam is created. This is the clean-regime
+# reference: the seam work must not move these numbers.
+#
+# Same vocabulary and register as paragraphs.txt, same absence of numerals
+# and abbreviations. Original prose, no third-party text.
+
+The tide came in slowly that morning.
+Nothing along that shore stayed written for long.
+Patience matters more than talent early on.
+Light reached the back rooms late in the day.
+Reading aloud changes what you notice.
+The map was wrong in a way that took hours to find.
+Birdsong at dawn is a sequence, not one sound.
+He kept every draft, which was closer to bookkeeping.
+The engine ran badly for a week before anyone admitted it.
+Snow flattens a landscape and then restores it in outline.
+A joke that turns on a pun must turn on something else.
+The library closed at dusk regardless of season.
+Things are washed before they are needed.
+The meal appears effortless because the effort moved earlier.
