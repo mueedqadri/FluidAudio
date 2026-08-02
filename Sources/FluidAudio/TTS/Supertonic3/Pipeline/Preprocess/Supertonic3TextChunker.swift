@@ -12,13 +12,33 @@ import Foundation
 /// after NFKD expansion and `<lang>…</lang>` wrapping).
 enum Supertonic3TextChunker {
 
+    /// One unit of text handed to the encoder, plus whether it ends a real
+    /// sentence.
+    ///
+    /// The distinction matters because every fragment is synthesized as its
+    /// own utterance. `Supertonic3UnicodeProcessor.preprocess` appends a
+    /// period to anything not already ending in punctuation, and on a comma-
+    /// or word-split fragment that makes the model perform a full stop
+    /// mid-clause — audible as an unexplained pause, and measurable as a
+    /// spurious sentence boundary in a TTS→ASR roundtrip. `isTerminal` is what
+    /// lets the processor tell a genuine sentence end from a seam.
+    struct Fragment: Equatable, Sendable {
+        let text: String
+        let isTerminal: Bool
+    }
+
+    /// Sentence-final punctuation the source text may already carry.
+    private static let terminalPunctuation: Set<Character> = [
+        ".", "!", "?", "\u{2026}", "\u{3002}", "\u{FF01}", "\u{FF1F}",
+    ]
+
     private static let abbreviations: [String] = [
         "Dr.", "Mr.", "Mrs.", "Ms.", "Prof.", "Sr.", "Jr.",
         "St.", "Ave.", "Rd.", "Blvd.", "Dept.", "Inc.", "Ltd.",
         "Co.", "Corp.", "etc.", "vs.", "i.e.", "e.g.", "Ph.D.",
     ]
 
-    static func chunk(text rawText: String, maxLen: Int) -> [String] {
+    static func chunk(text rawText: String, maxLen: Int) -> [Fragment] {
         let trimmed = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
             return []
@@ -39,7 +59,23 @@ enum Supertonic3TextChunker {
             packSentences(para, maxLen: maxLen, into: &chunks)
         }
 
-        return chunks
+        return classify(chunks)
+    }
+
+    /// Mark which fragments end a sentence.
+    ///
+    /// A fragment is terminal when it already carries the source's own
+    /// sentence-final punctuation — the splitters keep that punctuation
+    /// attached to the piece it belongs to. The final fragment of the whole
+    /// input is terminal regardless, so a caller passing a bare phrase still
+    /// gets a properly closed utterance.
+    private static func classify(_ chunks: [String]) -> [Fragment] {
+        chunks.enumerated().map { index, text in
+            let endsSentence = text.last.map(terminalPunctuation.contains) ?? false
+            return Fragment(
+                text: text,
+                isTerminal: endsSentence || index == chunks.count - 1)
+        }
     }
 
     // MARK: - Paragraph split (blank line boundary)

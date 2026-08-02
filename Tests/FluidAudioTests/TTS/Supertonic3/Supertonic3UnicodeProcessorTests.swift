@@ -28,6 +28,50 @@ final class Supertonic3UnicodeProcessorTests: XCTestCase {
             "<en>hello.</en>")
     }
 
+    // MARK: - Terminal vs continuation closing
+
+    func testNonTerminalFragmentGetsContinuationMarkNotPeriod() {
+        let out = Supertonic3UnicodeProcessor.preprocess(
+            text: "the scheduler falls back to the CPU whenever an operator is",
+            lang: "en", isTerminal: false)
+        XCTAssertTrue(
+            out.hasSuffix("\(Supertonic3UnicodeProcessor.continuationMark)</en>"),
+            "a mid-clause fragment must not be closed with a period")
+        XCTAssertFalse(out.hasSuffix(".</en>"))
+    }
+
+    func testTerminalFragmentStillGetsPeriod() {
+        let out = Supertonic3UnicodeProcessor.preprocess(
+            text: "the scheduler falls back to the CPU", lang: "en", isTerminal: true)
+        XCTAssertTrue(out.hasSuffix(".</en>"))
+    }
+
+    func testExistingPunctuationSurvivesRegardlessOfTerminality() {
+        // Already-closed text is left alone either way — the flag only decides
+        // what to add when nothing is there.
+        XCTAssertEqual(
+            Supertonic3UnicodeProcessor.preprocess(
+                text: "In practice, however,", lang: "en", isTerminal: false),
+            "<en>In practice, however,</en>")
+        XCTAssertEqual(
+            Supertonic3UnicodeProcessor.preprocess(
+                text: "That is all.", lang: "en", isTerminal: false),
+            "<en>That is all.</en>")
+    }
+
+    func testEncodeAppliesPerRowTerminality() throws {
+        // Two rows, opposite terminality: only the terminal one may gain a
+        // period. Exercised through `preprocess` since `encode` needs a
+        // loaded indexer.
+        let rows = [("first half of a clause", false), ("a whole sentence", true)]
+        let processed = rows.map {
+            Supertonic3UnicodeProcessor.preprocess(text: $0.0, lang: "en", isTerminal: $0.1)
+        }
+        XCTAssertTrue(
+            processed[0].hasSuffix("\(Supertonic3UnicodeProcessor.continuationMark)</en>"))
+        XCTAssertTrue(processed[1].hasSuffix(".</en>"))
+    }
+
     func testStripsEmojiCodepoints() {
         // U+1F600 GRINNING FACE — should be removed.
         let out = Supertonic3UnicodeProcessor.preprocess(text: "hi \u{1F600} there", lang: "en")

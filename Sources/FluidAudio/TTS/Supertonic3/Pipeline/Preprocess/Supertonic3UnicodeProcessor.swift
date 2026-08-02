@@ -33,18 +33,27 @@ struct Supertonic3UnicodeProcessor {
 
     /// Encode a batch of (text, language) pairs into padded Int64 IDs +
     /// per-row float masks (`[bsz, 1, maxLen]`).
+    ///
+    /// `terminals` marks which rows end a real sentence; rows that do not are
+    /// closed with a continuation mark instead of a period. Defaults to all
+    /// terminal, which is the right answer for a caller synthesizing whole
+    /// utterances.
     func encode(
-        texts: [String], languages: [String]
+        texts: [String], languages: [String], terminals: [Bool]? = nil
     ) throws -> (ids: [[Int64]], mask: [[[Float]]]) {
         precondition(texts.count == languages.count, "texts/languages length mismatch")
+        if let terminals {
+            precondition(terminals.count == texts.count, "texts/terminals length mismatch")
+        }
 
         var processed: [String] = []
         processed.reserveCapacity(texts.count)
-        for (text, lang) in zip(texts, languages) {
+        for (index, (text, lang)) in zip(texts, languages).enumerated() {
             guard Supertonic3Constants.availableLanguages.contains(lang) else {
                 throw Supertonic3Error.unsupportedLanguage(lang)
             }
-            let cleaned = Self.preprocess(text: text, lang: lang)
+            let cleaned = Self.preprocess(
+                text: text, lang: lang, isTerminal: terminals?[index] ?? true)
             if cleaned.isEmpty {
                 throw Supertonic3Error.emptyText
             }
@@ -78,7 +87,18 @@ struct Supertonic3UnicodeProcessor {
 
     // MARK: - Text normalization (pure function for unit tests)
 
-    static func preprocess(text rawText: String, lang: String) -> String {
+    /// Mark closing a fragment that does not end a sentence, replacing the
+    /// period that made the model stop mid-clause.
+    ///
+    /// Measured on `Benchmarks/Supertonic3/paragraphs.txt` with no seam pad,
+    /// counting sentence boundaries the recognizer hears that the source never
+    /// wrote: comma +54%, no mark +63%, period +71%. An explicit "keep going"
+    /// cue beats leaving the fragment open.
+    static let continuationMark = ","
+
+    static func preprocess(
+        text rawText: String, lang: String, isTerminal: Bool = true
+    ) -> String {
         var text = rawText.decomposedStringWithCompatibilityMapping
 
         // Drop emoji codepoints in the wide Unicode planes.
@@ -114,13 +134,17 @@ struct Supertonic3UnicodeProcessor {
         }
         text = text.trimmingCharacters(in: .whitespacesAndNewlines)
 
+        // Close the utterance. A fragment that already ends in punctuation is
+        // left alone; one that ends on a bare word gets a period only when it
+        // actually ends a sentence, and a continuation mark otherwise — a
+        // fabricated period here is what makes the model stop mid-clause.
         if !text.isEmpty,
             let regex = try? NSRegularExpression(
                 pattern: "[.!?;:,'\"\\u201C\\u201D\\u2018\\u2019)\\]}…。」』】〉》›»]$")
         {
             let range = NSRange(text.startIndex..., in: text)
             if regex.firstMatch(in: text, range: range) == nil {
-                text += "."
+                text += isTerminal ? "." : Self.continuationMark
             }
         }
 
