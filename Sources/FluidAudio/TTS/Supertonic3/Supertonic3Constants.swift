@@ -79,18 +79,29 @@ public enum Supertonic3Constants {
     public static let defaultSilenceDuration: Float = 0.05
 
     /// Max characters per chunk when synthesizing long English/Latin text.
-    /// Although `textTFixed = 128` would *fit* ~110 chars, the model's output
-    /// degrades as a chunk approaches that token window (a 105-char single
-    /// chunk scored 17.6% WER vs 0% at 71 chars), so the cap is held at 70 to
-    /// keep every chunk in the clean regime. Longer text is split by
-    /// `Supertonic3TextChunker` before reaching the encoder. See #669.
+    ///
+    /// Sized to the `textTFixed = 128` window less the `<lang>…</lang>`
+    /// wrapper and NFKD expansion. **This is a limit of our CoreML export, not
+    /// of the model.** The reference ONNX graphs declare `text_length` as a
+    /// symbolic dimension and the upstream demo chunks at 300 characters
+    /// (120 for CJK); freezing T at 128 during conversion is what forces a
+    /// cap here at all.
+    ///
+    /// Held at 70 because of #669, and **confirmed by measurement**: raising
+    /// it to 110 on `Benchmarks/Supertonic3/paragraphs.txt` cut mid-clause
+    /// seams (54 → 30) but took macro WER from ~1.5% to **12.2%**, with whole
+    /// clauses dropped from the audio and words mangled ("Distances" →
+    /// "Distas"). The seam win is not worth losing the words.
+    ///
+    /// So the export degrades well before its own 128-token window is full,
+    /// while the reference runs the same weights at 300 characters. Both
+    /// facts point at the conversion rather than the weights. Raising this
+    /// safely requires a re-export, not a constant change — see MAC-395.
     public static let maxChunkLengthLatin: Int = 70
 
-    /// Tighter chunk cap for Korean / Japanese. CJK expands to more codepoints
-    /// per visible character after NFKD, so the same token-window budget holds
-    /// fewer CJK characters — kept proportionally below `maxChunkLengthLatin`
-    /// (same ~0.82 ratio as the original 90/110) to stay in the clean regime
-    /// and tighter than Latin. See #669.
+    /// Chunk cap for Korean / Japanese. CJK expands to more codepoints per
+    /// visible character after NFKD, so the same token window holds fewer of
+    /// them; kept proportionally below `maxChunkLengthLatin`.
     public static let maxChunkLengthCJK: Int = 57
 
     // MARK: - Language whitelist (matches AVAILABLE_LANGS in the reference)

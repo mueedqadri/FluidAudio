@@ -3,13 +3,21 @@ import Foundation
 /// Long-text chunker that mirrors `chunkText()` from the upstream Supertonic
 /// reference `Helper.swift`.
 ///
-/// The chunker splits by paragraphs first, then by sentences (abbreviation-
-/// aware), then by commas, and finally falls back to whitespace boundaries
-/// so individual chunks never exceed the configured `maxLen`. The default
-/// cap is 110 characters for Latin-script input and 90 characters for CJK
-/// (Korean / Japanese), matching `Supertonic3Constants.maxChunkLengthLatin`
-/// / `maxChunkLengthCJK` (sized to fit the fixed `textTFixed = 128` window
-/// after NFKD expansion and `<lang>…</lang>` wrapping).
+/// The chunker splits by paragraphs first, then packs whole sentences up to
+/// `maxLen` (abbreviation-aware). A sentence that on its own exceeds `maxLen`
+/// is split further — first at commas, then at whitespace.
+///
+/// Those last two fallbacks are a **deviation from the reference**, which only
+/// ever breaks at sentence boundaries and hands an over-long sentence to the
+/// model whole. We cannot: `textTFixed = 128` is frozen into the CoreML
+/// export, and anything past it is silently truncated by
+/// `Supertonic3UnicodeProcessor.encode`. Dropping words is worse than a seam,
+/// so the fallbacks stay until the models are re-exported with a larger text
+/// axis — at which point they should go.
+///
+/// Caps are `Supertonic3Constants.maxChunkLengthLatin` / `maxChunkLengthCJK`,
+/// sized to that 128-token window after NFKD expansion and `<lang>…</lang>`
+/// wrapping.
 enum Supertonic3TextChunker {
 
     private static let abbreviations: [String] = [
