@@ -56,8 +56,7 @@ struct Supertonic3Synthesizer {
 
         for (i, chunk) in chunks.enumerated() {
             let (chunkSamples, chunkDuration) = try await infer(
-                text: chunk.text, isTerminal: chunk.isTerminal,
-                language: language, style: style,
+                text: chunk, language: language, style: style,
                 totalSteps: totalSteps, speed: speed)
             if i == 0 {
                 samples = chunkSamples
@@ -75,12 +74,12 @@ struct Supertonic3Synthesizer {
     // MARK: - Single-chunk inference (batch size 1)
 
     private func infer(
-        text: String, isTerminal: Bool, language: String,
+        text: String, language: String,
         style: Supertonic3VoiceStyle,
         totalSteps: Int, speed: Float
     ) async throws -> (samples: [Float], duration: Float) {
         let (idsBatch, maskBatch) = try processor.encode(
-            texts: [text], languages: [language], terminals: [isTerminal])
+            texts: [text], languages: [language])
         guard let ids = idsBatch.first, let mask = maskBatch.first else {
             throw Supertonic3Error.emptyText
         }
