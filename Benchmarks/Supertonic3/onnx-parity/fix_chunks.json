@@ -1,0 +1,260 @@
+{
+ "p1": {
+  "lang": "en",
+  "source": "He kept every draft, which sounds like sentimentality but was closer to bookkeeping. When a passage stopped working he could go back and find the version before the damage, and often the fault turned out to be a small decision made three revisions earlier for reasons he had long since forgotten. Without the record he would have rewritten the same mistake, patiently, for years.",
+  "ships": [
+   {
+    "text": "He kept every draft",
+    "tok": 29,
+    "trunc": false,
+    "real": false
+   },
+   {
+    "text": "which sounds like sentimentality but was closer to bookkeeping.",
+    "tok": 72,
+    "trunc": false,
+    "real": true
+   },
+   {
+    "text": "When a passage stopped working he could go back and find the version",
+    "tok": 78,
+    "trunc": false,
+    "real": false
+   },
+   {
+    "text": "before the damage",
+    "tok": 27,
+    "trunc": false,
+    "real": false
+   },
+   {
+    "text": "and often the fault turned out to be a small decision made three",
+    "tok": 74,
+    "trunc": false,
+    "real": false
+   },
+   {
+    "text": "revisions earlier for reasons he had long since forgotten.",
+    "tok": 67,
+    "trunc": false,
+    "real": true
+   },
+   {
+    "text": "Without the record he would have rewritten the same mistake, patiently",
+    "tok": 80,
+    "trunc": false,
+    "real": false
+   },
+   {
+    "text": "for years.",
+    "tok": 19,
+    "trunc": false,
+    "real": null
+   }
+  ],
+  "fixed": [
+   {
+    "text": "He kept every draft, which sounds like sentimentality but was closer to bookkeeping.",
+    "tok": 93,
+    "trunc": false,
+    "real": true
+   },
+   {
+    "text": "When a passage stopped working he could go back and find the version before the damage",
+    "tok": 96,
+    "trunc": false,
+    "real": false
+   },
+   {
+    "text": "and often the fault turned out to be a small decision made three revisions earlier for reasons he had long since",
+    "tok": 122,
+    "trunc": false,
+    "real": false
+   },
+   {
+    "text": "forgotten.",
+    "tok": 19,
+    "trunc": false,
+    "real": true
+   },
+   {
+    "text": "Without the record he would have rewritten the same mistake, patiently, for years.",
+    "tok": 91,
+    "trunc": false,
+    "real": null
+   }
+  ],
+  "ceiling": [
+   {
+    "text": "He kept every draft, which sounds like sentimentality but was closer to bookkeeping. When a passage stopped working he could go back and find the version before the damage, and often the fault turned out to be a small decision made three revisions earlier for reasons he had long since forgotten.",
+    "tok": 305,
+    "trunc": true,
+    "real": true
+   },
+   {
+    "text": "Without the record he would have rewritten the same mistake, patiently, for years.",
+    "tok": 91,
+    "trunc": false,
+    "real": null
+   }
+  ]
+ },
+ "p2": {
+  "lang": "en",
+  "source": "Translation is less about words than about what a sentence is doing. A joke that turns on a pun must become a joke that turns on something else, or it stops being a joke, and a formal register that signals distance in one language may signal nothing at all in another. The translator who preserves every word and loses the effect has produced an accurate document and a failed piece of writing.",
+  "ships": [
+   {
+    "text": "Translation is less about words than about what a sentence is doing.",
+    "tok": 77,
+    "trunc": false,
+    "real": true
+   },
+   {
+    "text": "A joke that turns on a pun must become a joke that turns on something",
+    "tok": 79,
+    "trunc": false,
+    "real": false
+   },
+   {
+    "text": "else",
+    "tok": 14,
+    "trunc": false,
+    "real": false
+   },
+   {
+    "text": "or it stops being a joke",
+    "tok": 34,
+    "trunc": false,
+    "real": false
+   },
+   {
+    "text": "and a formal register that signals distance in one language may signal",
+    "tok": 80,
+    "trunc": false,
+    "real": false
+   },
+   {
+    "text": "nothing at all in another.",
+    "tok": 35,
+    "trunc": false,
+    "real": true
+   },
+   {
+    "text": "The translator who preserves every word and loses the effect has",
+    "tok": 74,
+    "trunc": false,
+    "real": false
+   },
+   {
+    "text": "produced an accurate document and a failed piece of writing.",
+    "tok": 69,
+    "trunc": false,
+    "real": null
+   }
+  ],
+  "fixed": [
+   {
+    "text": "Translation is less about words than about what a sentence is doing.",
+    "tok": 77,
+    "trunc": false,
+    "real": true
+   },
+   {
+    "text": "A joke that turns on a pun must become a joke that turns on something else, or it stops being a joke",
+    "tok": 110,
+    "trunc": false,
+    "real": false
+   },
+   {
+    "text": "and a formal register that signals distance in one language may signal nothing at all in another.",
+    "tok": 106,
+    "trunc": false,
+    "real": true
+   },
+   {
+    "text": "The translator who preserves every word and loses the effect has produced an accurate document and a failed piece of",
+    "tok": 126,
+    "trunc": false,
+    "real": false
+   },
+   {
+    "text": "writing.",
+    "tok": 17,
+    "trunc": false,
+    "real": null
+   }
+  ],
+  "ceiling": [
+   {
+    "text": "Translation is less about words than about what a sentence is doing. A joke that turns on a pun must become a joke that turns on something else, or it stops being a joke, and a formal register that signals distance in one language may signal nothing at all in another.",
+    "tok": 277,
+    "trunc": true,
+    "real": true
+   },
+   {
+    "text": "The translator who preserves every word and loses the effect has produced an accurate document and a failed piece of writing.",
+    "tok": 134,
+    "trunc": true,
+    "real": null
+   }
+  ]
+ },
+ "hi1": {
+  "lang": "hi",
+  "source": "सुबह की हवा में हल्की ठंडक थी और रोशनी खिड़की से तिरछी आ रही थी। वह मेज़ पर बैठा रहा, कागज़ सामने खुला था, पर लिखने का मन नहीं हुआ। बाहर पेड़ों की छाया धीरे-धीरे छोटी होती जा रही थी, और गली में किसी के चलने की आवाज़ आती रही। उसने चाय का प्याला उठाया, जो अब ठंडा हो चुका था।",
+  "ships": [
+   {
+    "text": "सुबह की हवा में हल्की ठंडक थी और रोशनी खिड़की से तिरछी आ रही थी। वह मेज़ पर बैठा रहा",
+    "tok": 94,
+    "trunc": false,
+    "real": false
+   },
+   {
+    "text": "कागज़ सामने खुला था, पर लिखने का मन नहीं हुआ। बाहर पेड़ों की छाया धीरे-धीरे छोटी होती जा रही थी",
+    "tok": 105,
+    "trunc": false,
+    "real": false
+   },
+   {
+    "text": "और गली में किसी के चलने की आवाज़ आती रही। उसने चाय का प्याला उठाया, जो अब ठंडा हो चुका था।",
+    "tok": 100,
+    "trunc": false,
+    "real": null
+   }
+  ],
+  "fixed": [
+   {
+    "text": "सुबह की हवा में हल्की ठंडक थी और रोशनी खिड़की से तिरछी आ रही थी।",
+    "tok": 74,
+    "trunc": false,
+    "real": true
+   },
+   {
+    "text": "वह मेज़ पर बैठा रहा, कागज़ सामने खुला था, पर लिखने का मन नहीं हुआ।",
+    "tok": 76,
+    "trunc": false,
+    "real": true
+   },
+   {
+    "text": "बाहर पेड़ों की छाया धीरे-धीरे छोटी होती जा रही थी, और गली में किसी के चलने की आवाज़ आती रही।",
+    "tok": 102,
+    "trunc": false,
+    "real": true
+   },
+   {
+    "text": "उसने चाय का प्याला उठाया, जो अब ठंडा हो चुका था।",
+    "tok": 58,
+    "trunc": false,
+    "real": null
+   }
+  ],
+  "ceiling": [
+   {
+    "text": "सुबह की हवा में हल्की ठंडक थी और रोशनी खिड़की से तिरछी आ रही थी। वह मेज़ पर बैठा रहा, कागज़ सामने खुला था, पर लिखने का मन नहीं हुआ। बाहर पेड़ों की छाया धीरे-धीरे छोटी होती जा रही थी, और गली में किसी के चलने की आवाज़ आती रही। उसने चाय का प्याला उठाया, जो अब ठंडा हो चुका था।",
+    "tok": 283,
+    "trunc": true,
+    "real": null
+   }
+  ]
+ }
+}

@@ -52,5 +52,138 @@
    283
   ],
   "seconds": 22.25
+ },
+ "ships-p1-cap70-pad128": {
+  "cap": 70,
+  "mode": "pad128",
+  "chunks": [
+   "He kept every draft",
+   "which sounds like sentimentality but was closer to bookkeeping.",
+   "When a passage stopped working he could go back and find the version",
+   "before the damage",
+   "and often the fault turned out to be a small decision made three",
+   "revisions earlier for reasons he had long since forgotten.",
+   "Without the record he would have rewritten the same mistake, patiently",
+   "for years."
+  ],
+  "tok_lens": [
+   29,
+   72,
+   78,
+   27,
+   74,
+   67,
+   80,
+   19
+  ],
+  "seconds": 26.72
+ },
+ "ships-p2-cap70-pad128": {
+  "cap": 70,
+  "mode": "pad128",
+  "chunks": [
+   "Translation is less about words than about what a sentence is doing.",
+   "A joke that turns on a pun must become a joke that turns on something",
+   "else",
+   "or it stops being a joke",
+   "and a formal register that signals distance in one language may signal",
+   "nothing at all in another.",
+   "The translator who preserves every word and loses the effect has",
+   "produced an accurate document and a failed piece of writing."
+  ],
+  "tok_lens": [
+   77,
+   79,
+   14,
+   34,
+   80,
+   35,
+   74,
+   69
+  ],
+  "seconds": 28.3
+ },
+ "ships-hi1-cap70-pad128": {
+  "cap": 70,
+  "mode": "pad128",
+  "chunks": [
+   "\u0938\u0941\u092c\u0939 \u0915\u0940 \u0939\u0935\u093e \u092e\u0947\u0902 \u0939\u0932\u094d\u0915\u0940 \u0920\u0902\u0921\u0915 \u0925\u0940 \u0914\u0930 \u0930\u094b\u0936\u0928\u0940 \u0916\u093f\u0921\u093c\u0915\u0940 \u0938\u0947 \u0924\u093f\u0930\u091b\u0940 \u0906 \u0930\u0939\u0940 \u0925\u0940\u0964 \u0935\u0939 \u092e\u0947\u091c\u093c \u092a\u0930 \u092c\u0948\u0920\u093e \u0930\u0939\u093e",
+   "\u0915\u093e\u0917\u091c\u093c \u0938\u093e\u092e\u0928\u0947 \u0916\u0941\u0932\u093e \u0925\u093e, \u092a\u0930 \u0932\u093f\u0916\u0928\u0947 \u0915\u093e \u092e\u0928 \u0928\u0939\u0940\u0902 \u0939\u0941\u0906\u0964 \u092c\u093e\u0939\u0930 \u092a\u0947\u0921\u093c\u094b\u0902 \u0915\u0940 \u091b\u093e\u092f\u093e \u0927\u0940\u0930\u0947-\u0927\u0940\u0930\u0947 \u091b\u094b\u091f\u0940 \u0939\u094b\u0924\u0940 \u091c\u093e \u0930\u0939\u0940 \u0925\u0940",
+   "\u0914\u0930 \u0917\u0932\u0940 \u092e\u0947\u0902 \u0915\u093f\u0938\u0940 \u0915\u0947 \u091a\u0932\u0928\u0947 \u0915\u0940 \u0906\u0935\u093e\u091c\u093c \u0906\u0924\u0940 \u0930\u0939\u0940\u0964 \u0909\u0938\u0928\u0947 \u091a\u093e\u092f \u0915\u093e \u092a\u094d\u092f\u093e\u0932\u093e \u0909\u0920\u093e\u092f\u093e, \u091c\u094b \u0905\u092c \u0920\u0902\u0921\u093e \u0939\u094b \u091a\u0941\u0915\u093e \u0925\u093e\u0964"
+  ],
+  "tok_lens": [
+   94,
+   105,
+   100
+  ],
+  "seconds": 21.76
+ },
+ "fixed-p1-cap118-pad128": {
+  "cap": 118,
+  "mode": "pad128",
+  "chunks": [
+   "He kept every draft, which sounds like sentimentality but was closer to bookkeeping.",
+   "When a passage stopped working he could go back and find the version before the damage",
+   "and often the fault turned out to be a small decision made three revisions earlier for reasons he had long since",
+   "forgotten.",
+   "Without the record he would have rewritten the same mistake, patiently, for years."
+  ],
+  "tok_lens": [
+   93,
+   96,
+   122,
+   19,
+   91
+  ],
+  "seconds": 25.36
+ },
+ "fixed-p2-cap118-pad128": {
+  "cap": 118,
+  "mode": "pad128",
+  "chunks": [
+   "Translation is less about words than about what a sentence is doing.",
+   "A joke that turns on a pun must become a joke that turns on something else, or it stops being a joke",
+   "and a formal register that signals distance in one language may signal nothing at all in another.",
+   "The translator who preserves every word and loses the effect has produced an accurate document and a failed piece of",
+   "writing."
+  ],
+  "tok_lens": [
+   77,
+   110,
+   106,
+   126,
+   17
+  ],
+  "seconds": 26.66
+ },
+ "fixed-hi1-cap118-pad128": {
+  "cap": 118,
+  "mode": "pad128",
+  "chunks": [
+   "\u0938\u0941\u092c\u0939 \u0915\u0940 \u0939\u0935\u093e \u092e\u0947\u0902 \u0939\u0932\u094d\u0915\u0940 \u0920\u0902\u0921\u0915 \u0925\u0940 \u0914\u0930 \u0930\u094b\u0936\u0928\u0940 \u0916\u093f\u0921\u093c\u0915\u0940 \u0938\u0947 \u0924\u093f\u0930\u091b\u0940 \u0906 \u0930\u0939\u0940 \u0925\u0940\u0964",
+   "\u0935\u0939 \u092e\u0947\u091c\u093c \u092a\u0930 \u092c\u0948\u0920\u093e \u0930\u0939\u093e, \u0915\u093e\u0917\u091c\u093c \u0938\u093e\u092e\u0928\u0947 \u0916\u0941\u0932\u093e \u0925\u093e, \u092a\u0930 \u0932\u093f\u0916\u0928\u0947 \u0915\u093e \u092e\u0928 \u0928\u0939\u0940\u0902 \u0939\u0941\u0906\u0964",
+   "\u092c\u093e\u0939\u0930 \u092a\u0947\u0921\u093c\u094b\u0902 \u0915\u0940 \u091b\u093e\u092f\u093e \u0927\u0940\u0930\u0947-\u0927\u0940\u0930\u0947 \u091b\u094b\u091f\u0940 \u0939\u094b\u0924\u0940 \u091c\u093e \u0930\u0939\u0940 \u0925\u0940, \u0914\u0930 \u0917\u0932\u0940 \u092e\u0947\u0902 \u0915\u093f\u0938\u0940 \u0915\u0947 \u091a\u0932\u0928\u0947 \u0915\u0940 \u0906\u0935\u093e\u091c\u093c \u0906\u0924\u0940 \u0930\u0939\u0940\u0964",
+   "\u0909\u0938\u0928\u0947 \u091a\u093e\u092f \u0915\u093e \u092a\u094d\u092f\u093e\u0932\u093e \u0909\u0920\u093e\u092f\u093e, \u091c\u094b \u0905\u092c \u0920\u0902\u0921\u093e \u0939\u094b \u091a\u0941\u0915\u093e \u0925\u093e\u0964"
+  ],
+  "tok_lens": [
+   74,
+   76,
+   102,
+   58
+  ],
+  "seconds": 22.08
+ },
+ "ref-p2-cap300-exact": {
+  "cap": 300,
+  "mode": "exact",
+  "chunks": [
+   "Translation is less about words than about what a sentence is doing. A joke that turns on a pun must become a joke that turns on something else, or it stops being a joke, and a formal register that signals distance in one language may signal nothing at all in another.",
+   "The translator who preserves every word and loses the effect has produced an accurate document and a failed piece of writing."
+  ],
+  "tok_lens": [
+   277,
+   134
+  ],
+  "seconds": 25.18
  }
 }

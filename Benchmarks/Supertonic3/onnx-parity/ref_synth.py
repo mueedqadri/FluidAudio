@@ -82,9 +82,16 @@ def infer_chunk(text, mode, rng):
     return wav[:trim] if trim > 0 else wav, duration, true_len
 
 
+CHUNKER = "ships"  # "ships" mirrors Swift today; "fixed" is the proposed policy
+
+
 def synth(text, cap, mode, silence=0.05, seed=1234):
     rng = np.random.default_rng(seed)
-    chunks = chunk_sim.chunk(text, mx=cap)
+    if CHUNKER == "fixed":
+        import chunk_fixed
+        chunks = chunk_fixed.chunk(text, mx=cap)
+    else:
+        chunks = chunk_sim.chunk(text, mx=cap)
     gap = np.zeros(int(silence * SR), dtype=np.float32)
     parts, lens = [], []
     for i, c in enumerate(chunks):
@@ -114,15 +121,18 @@ if __name__ == "__main__":
     ap.add_argument("--caps", default="70,110,300")
     ap.add_argument("--modes", default="exact")
     ap.add_argument("--lang", default="en")
+    ap.add_argument("--chunker", default="ships", choices=("ships", "fixed"))
+    ap.add_argument("--tag", default="ref")
     args = ap.parse_args()
     LANG = args.lang
+    CHUNKER = args.chunker
 
     src = json.load(open("paragraphs.json"))
     meta = {}
     for key in args.keys.split(","):
         for cap in (int(c) for c in args.caps.split(",")):
             for mode in args.modes.split(","):
-                name = f"ref-{key}-cap{cap}-{mode}"
+                name = f"{args.tag}-{key}-cap{cap}-{mode}"
                 print(f"\n[{name}]")
                 samples, chunks, lens = synth(src[key], cap, mode)
                 write_wav(f"out/{name}.wav", samples)

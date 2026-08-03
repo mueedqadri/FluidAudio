@@ -1,0 +1,36 @@
+{
+ "p1": {
+  "ships": {
+   "text": "He kept every draft. Which sounds like sentimentality, but was closer to bookkeeping. When a passage stopped working, he could go back and find the version. Before the damage. And often the fault turned out to be a small decision made three revisions earlier for reasons he had long since forgotten. Without the record, he would have rewritten the same mistake patiently. For years.",
+   "invented": 4,
+   "dw": 0
+  },
+  "fixed": {
+   "text": "He kept every draft, which sounds like sentimentality but was closer to bookkeeping. When a passage stopped working, he could go back and find the version before the damage. And often the fault turned out to be a small decision made three revisions earlier for reasons he had long since forgotten. Without the record, he would have rewritten the same mistake patiently, for years.",
+   "invented": 1,
+   "dw": 0
+  },
+  "ceiling": {
+   "text": "He kept every draft, which sounds like sentimentality, but was closer to bookkeeping. When a passage stopped working, he could go back and find the version before the damage. And often the fault turned out to be a small decision, made three revisions earlier for reasons he had long since forgotten. Without the record, he would have rewritten the same mistake, patiently, for years.",
+   "invented": 1,
+   "dw": 0
+  }
+ },
+ "p2": {
+  "ships": {
+   "text": "Translation is less about words than about what a sentence is doing. A joke that turns on a pun must become a joke that turns on something. Else. Or it stops being a joke. And a formal register that signals distance in one language may signal. Nothing at all in another. The translator who preserves every word and loses the effect has produced an accurate document and a failed piece of writing.",
+   "invented": 4,
+   "dw": 0
+  },
+  "fixed": {
+   "text": "Translation is less about words than about what a sentence is doing. A joke that turns on a pun must become a joke that turns on something else, or it stops being a joke. And a formal register that signals distance in one language may signal nothing at all in another. The translator who preserves every word and loses the effect has produced an accurate document and a failed piece of writing.",
+   "invented": 1,
+   "dw": 0
+  },
+  "ceiling": {
+   "text": "Translation is less about words than about what a sentence is doing. A joke that turns on a pun must become a joke that turns on something else, or it stops being a joke, and a formal register that signals distance in one language may signal nothing at all in another. The translator who preserves every word and loses the effect has produced an accurate document and a failed piece of writing.",
+   "invented": 0,
+   "dw": 0
+  }
+ }
+}
