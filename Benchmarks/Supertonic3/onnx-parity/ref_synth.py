@@ -43,9 +43,12 @@ def pad_axis(x, to_len, axis=-1):
     return np.pad(x, pad)
 
 
+LANG = "en"  # set by --lang; the encoder wraps text as <LANG>...</LANG>
+
+
 def infer_chunk(text, mode, rng):
     text_pad = 128 if mode in ("pad128", "bucket") else None
-    ids, mask, true_len = enc.encode(text, pad_to=text_pad)
+    ids, mask, true_len = enc.encode(text, lang=LANG, pad_to=text_pad)
 
     duration = float(np.ravel(dp_sess.run(
         None, {"text_ids": ids, "text_mask": mask, "style_dp": dp_style})[0])[0])
@@ -110,7 +113,9 @@ if __name__ == "__main__":
     ap.add_argument("--keys", default="p1,p2")
     ap.add_argument("--caps", default="70,110,300")
     ap.add_argument("--modes", default="exact")
+    ap.add_argument("--lang", default="en")
     args = ap.parse_args()
+    LANG = args.lang
 
     src = json.load(open("paragraphs.json"))
     meta = {}

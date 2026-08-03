@@ -1,5 +1,32 @@
 import re
+import unicodedata as _ud
 ABBR=["Dr.","Mr.","Mrs.","Ms.","Prof.","Sr.","Jr.","St.","Ave.","Rd.","Blvd.","Dept.","Inc.","Ltd.","Co.","Corp.","etc.","vs.","i.e.","e.g.","Ph.D."]
+
+# The Swift chunker measures with String.count, which is EXTENDED GRAPHEME
+# CLUSTERS, while the 128-token budget is counted in unicode scalars. For Latin
+# text the two agree and this is invisible. For Devanagari one cluster is ~1.4
+# scalars, so a cap that looks safe in Characters can overflow the window and
+# have its tail silently discarded. Mirror Swift, or the harness cannot
+# reproduce the bug. Set `chunk_sim.UNIT = "scalar"` for the old behaviour.
+UNIT = "cluster"
+_VIRAMA = "्"
+
+
+def _extends(c, prev):
+    return _ud.category(c) in ("Mn", "Mc", "Me") or prev == _VIRAMA
+
+
+def clen(s):
+    """len() in the unit the Swift chunker actually compares against."""
+    if UNIT == "scalar":
+        return len(s)
+    n = i = 0
+    while i < len(s):
+        i += 1
+        while i < len(s) and _extends(s[i], s[i - 1]):
+            i += 1
+        n += 1
+    return n
 def split_sentences(t):
     out=[];last=0
     for m in re.finditer(r"([.!?])\s+",t):
@@ -11,7 +38,7 @@ def split_sentences(t):
 def pack_words(p,mx,ch):
     cur=""
     for w in p.split():
-        if len(cur)+len(w)+1>mx and cur: ch.append(cur);cur=""
+        if clen(cur)+clen(w)+1>mx and cur: ch.append(cur);cur=""
         cur = w if not cur else cur+" "+w
     if cur.strip():ch.append(cur.strip())
 def pack_commas(s,mx,ch):
@@ -19,11 +46,11 @@ def pack_commas(s,mx,ch):
     for raw in s.split(","):
         part=raw.strip()
         if not part:continue
-        if len(part)>mx:
+        if clen(part)>mx:
             if cur.strip():ch.append(cur.strip())
             cur=""
             pack_words(part,mx,ch);continue
-        if len(cur)+len(part)+2>mx and cur: ch.append(cur);cur=""
+        if clen(cur)+clen(part)+2>mx and cur: ch.append(cur);cur=""
         cur = part if not cur else cur+", "+part
     if cur.strip():ch.append(cur.strip())
 def chunk(text,mx=70):
@@ -31,11 +58,11 @@ def chunk(text,mx=70):
     for s in split_sentences(text.strip()):
         s=s.strip()
         if not s:continue
-        if len(s)>mx:
+        if clen(s)>mx:
             if cur.strip():ch.append(cur.strip())
             cur=""
             pack_commas(s,mx,ch);continue
-        if len(cur)+len(s)+1>mx and cur: ch.append(cur);cur=""
+        if clen(cur)+clen(s)+1>mx and cur: ch.append(cur);cur=""
         cur = s if not cur else cur+" "+s
     if cur.strip():ch.append(cur.strip())
     return ch
