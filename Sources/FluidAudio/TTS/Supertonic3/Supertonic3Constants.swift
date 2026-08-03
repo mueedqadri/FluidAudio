@@ -106,9 +106,11 @@ public enum Supertonic3Constants {
     /// ~3.4% per-step error compounding across the 8-step denoising loop.
     ///
     /// Raising this therefore only needs the caller to select int8 (MacReader
-    /// already does). Reaching the reference's 300 is a separate matter: it
-    /// needs a re-export, since `textTFixed` truncates and `text_emb` is
-    /// pinned at 128 in the VectorEstimator too. See MAC-395.
+    /// already does). Reaching the reference's 300 still needs a re-export,
+    /// but only of `TextEncoder` and `DurationPredictor` — `textTFixed` is
+    /// what truncates. The VectorEstimator is pinned only in its *bucketed*
+    /// builds; the dynamic ones already declare `text_emb` as `[1, 256, ?]`.
+    /// See MAC-395.
     public static let maxChunkLengthLatin: Int = 70
 
     /// Chunk cap for Korean / Japanese. CJK expands to more codepoints per

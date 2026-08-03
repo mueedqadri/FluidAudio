@@ -84,6 +84,24 @@ public enum Supertonic3Quantization: String, Sendable, Equatable, CaseIterable {
 ///   the Neural Engine (~2.7× faster end-to-end). The synthesizer pads each
 ///   chunk's latent up to the smallest bucket ≥ its length. Per-chunk length is
 ///   bounded by the text chunker, so the 128 bucket covers the common case.
+/// Measured on `Benchmarks/Supertonic3/paragraphs.txt` at a 70-character cap
+/// (macOS, M1 voice, 8 steps). Higher precision is not the safe default it
+/// looks like — the dynamic builds cannot use the ANE, so they pay ~10× in
+/// throughput and 2× in download for accuracy that is a wash:
+///
+/// | build | macro WER | realtime | weights |
+/// | --- | --- | --- | --- |
+/// | `.aneBucketed(.int8)` | 0.24% | 52.7× | 64 MB |
+/// | `.dynamic(.int8)` | 0.61% | 13.9× | 64 MB |
+/// | `.fp16Dynamic` | 0.62% | 5.1× | 128 MB |
+///
+/// The WER spread there is inside run-to-run variance (synthesis noise is
+/// unseeded); the throughput gap is not. Reach for `.fp16Dynamic` to check
+/// whether quantisation is implicated in a defect, not to ship.
+///
+/// One structural difference worth knowing: the dynamic builds declare
+/// `text_emb` as `[1, 256, ?]`, so they already accept a text axis longer
+/// than 128. Only the bucketed builds pin it.
 public enum Supertonic3VectorEstimator: Sendable, Equatable {
     case fp16Dynamic
     case dynamic(Supertonic3Quantization)
