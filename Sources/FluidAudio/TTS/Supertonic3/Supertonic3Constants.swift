@@ -78,45 +78,36 @@ public enum Supertonic3Constants {
     /// (CLI `--silence`).
     public static let defaultSilenceDuration: Float = 0.05
 
-    /// Max characters per chunk when synthesizing long English/Latin text.
+    /// There is deliberately no per-language chunk cap.
     ///
-    /// Sized to the `textTFixed = 128` window less the `<lang>…</lang>`
-    /// wrapper and NFKD expansion. **This is a limit of our CoreML export, not
-    /// of the model.** The reference ONNX graphs declare `text_length` as a
-    /// symbolic dimension and the upstream demo chunks at 300 characters
-    /// (120 for CJK); freezing T at 128 during conversion is what forces a
-    /// cap here at all.
+    /// `Supertonic3TextChunker` measures each candidate chunk by the number of
+    /// tokens it *encodes to* (`encodedLength(of:lang:)`) and compares that
+    /// against `textTFixed` directly, so the window is the cap. That removes a
+    /// class of bug rather than tuning around it: a cap expressed in
+    /// characters means something different in every script, and picking one
+    /// number per script is guesswork that silently truncates when it is
+    /// wrong.
     ///
-    /// Held at 70 for #669, but that cap is **precision-dependent, not a limit
-    /// of the weights**. Measured on `Benchmarks/Supertonic3/paragraphs.txt`
-    /// with `tts-asr-verify --ve-variant`:
+    /// The character counts that fall out, for reference — measured, not
+    /// configured, via `Benchmarks/Supertonic3/onnx-parity/cap_units.py`:
     ///
-    /// | VectorEstimator | cap 70 | cap 110 |
-    /// | --- | --- | --- |
-    /// | `int4` (this file's default) | 0.88% WER | **7.63% WER** |
-    /// | `int8` | 0.24% WER | 0.24% WER |
+    /// | | en / de / ar | ru | ja | vi | hi | ko |
+    /// | --- | --- | --- | --- | --- | --- | --- |
+    /// | chars admitted | 118 | 116 | 108 | 94 | 118 | 56 |
     ///
-    /// Only int4 collapses when chunks grow; int8 is flat, and at 110 it also
-    /// cuts spurious sentence ends 35 → 21 because there are fewer seams to
-    /// fabricate a period at. Cross-checked against the reference fp32 ONNX
-    /// graphs: with text padded to 128 and the latent padded to its bucket —
-    /// i.e. every shape constraint this export imposes — fp32 transcribes
-    /// word-perfect at 110 *and* at the demo's 300. So neither the frozen T
-    /// axis nor latent bucketing is at fault; 4-bit palettization is, its
-    /// ~3.4% per-step error compounding across the 8-step denoising loop.
+    /// The two mechanisms behind the spread: Devanagari averages ~1.4 scalars
+    /// per grapheme cluster, and NFKD splits a Hangul syllable into three jamo
+    /// and a stacked Vietnamese vowel into up to three scalars.
     ///
-    /// Raising this therefore only needs the caller to select int8 (MacReader
-    /// already does). Reaching the reference's 300 still needs a re-export,
-    /// but only of `TextEncoder` and `DurationPredictor` — `textTFixed` is
-    /// what truncates. The VectorEstimator is pinned only in its *bucketed*
-    /// builds; the dynamic ones already declare `text_emb` as `[1, 256, ?]`.
-    /// See MAC-395.
-    public static let maxChunkLengthLatin: Int = 70
-
-    /// Chunk cap for Korean / Japanese. CJK expands to more codepoints per
-    /// visible character after NFKD, so the same token window holds fewer of
-    /// them; kept proportionally below `maxChunkLengthLatin`.
-    public static let maxChunkLengthCJK: Int = 57
+    /// Chunk *quality* is a separate axis from chunk *size*, and is bounded by
+    /// the VectorEstimator's precision rather than by this file. Measured on
+    /// `Benchmarks/Supertonic3/paragraphs.txt` with `tts-asr-verify
+    /// --ve-variant`, macro WER at a 70- against a 110-character cap:
+    /// `int4` 0.88% → 7.63%, `int8` 0.24% → 0.24%. **Callers must select int8**
+    /// (MacReader does); 4-bit palettization comes apart as chunks grow, and
+    /// 6-bit does the same one cap further out. Neither the frozen text axis
+    /// nor latent bucketing is implicated — reference fp32 stays word-perfect
+    /// under both constraints at 110 and at 300.
 
     // MARK: - Language whitelist (matches AVAILABLE_LANGS in the reference)
 
@@ -127,6 +118,8 @@ public enum Supertonic3Constants {
         "ru", "sk", "sl", "sv", "tr", "uk", "vi", "na",
     ]
 
-    /// Languages that should use the tighter `maxChunkLengthCJK` (57-char) chunker.
+    /// Languages written without inter-word spaces. Retained for callers that
+    /// need to reason about word segmentation; it no longer selects a chunk
+    /// cap, because the chunker measures the encoded window instead.
     public static let cjkLanguages: Set<String> = ["ko", "ja"]
 }

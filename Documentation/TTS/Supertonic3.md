@@ -173,9 +173,18 @@ No Chinese (`zh`) — Supertonic-3 was not trained on Mandarin. Use
 [`KokoroAne`](KokoroAne.md) with `--variant mandarin` for Mandarin
 TTS in FluidAudio.
 
-`Supertonic3Constants.cjkLanguages = ["ko", "ja"]` uses a tighter
-90-char chunk cap to leave headroom inside the 128-token window —
-CJK uses more codepoints per visible character after NFKD.
+There is no per-language chunk cap. `Supertonic3TextChunker` measures each
+candidate by the number of tokens it *encodes to* and compares that against
+the 128-token window directly, so the window is the cap. A cap expressed in
+characters means something different in every script — Devanagari averages
+~1.4 scalars per grapheme cluster, and NFKD splits a Hangul syllable into
+three jamo — so one number per script silently truncates whenever the guess
+is wrong. The character counts that fall out are measured, not configured:
+en/de/ar 118, ru 116, ja 108, vi 94, ko 56.
+
+Sentence boundaries are recognised in every supported script: Latin `.!?`,
+the Devanagari danda `।`/`॥`, the Arabic question mark `؟`, and the CJK
+`。！？`, the last group without requiring trailing whitespace.
 
 ## Models
 

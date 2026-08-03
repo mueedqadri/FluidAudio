@@ -200,7 +200,7 @@ public enum TTSAsrVerifyCommand {
                         + "steps=\(stTotalSteps) speed=\(String(format: "%.2f", stSpeed)) "
                         + "silence=\(String(format: "%.2f", stSilence))s "
                         + "ve=\(veLabel) "
-                        + "maxChunk=\(Supertonic3Constants.maxChunkLengthLatin))")
+                        + "window=\(Supertonic3Constants.textTFixed) tokens)")
 
                 synthesize = { phrase in
                     let result = try await manager.synthesize(
@@ -409,10 +409,7 @@ public enum TTSAsrVerifyCommand {
                     summary["total_steps"] = totalSteps
                     summary["speed"] = speed
                     summary["silence_s"] = silence
-                    summary["max_chunk_chars"] =
-                        Supertonic3Constants.cjkLanguages.contains(language)
-                        ? Supertonic3Constants.maxChunkLengthCJK
-                        : Supertonic3Constants.maxChunkLengthLatin
+                    summary["max_chunk_tokens"] = Supertonic3Constants.textTFixed
                 }
                 let report: [String: Any] = [
                     "summary": summary,

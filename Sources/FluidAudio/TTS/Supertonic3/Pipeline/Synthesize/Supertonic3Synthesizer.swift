@@ -39,12 +39,9 @@ struct Supertonic3Synthesizer {
         speed: Float,
         silenceDuration: Float
     ) async throws -> (samples: [Float], duration: Float) {
-        let maxLen =
-            Supertonic3Constants.cjkLanguages.contains(language)
-            ? Supertonic3Constants.maxChunkLengthCJK
-            : Supertonic3Constants.maxChunkLengthLatin
-
-        let chunks = Supertonic3TextChunker.chunk(text: text, maxLen: maxLen)
+        // The chunker sizes itself against the models' token window directly,
+        // so there is no per-language cap to pick here.
+        let chunks = Supertonic3TextChunker.chunk(text: text, lang: language)
         guard !chunks.isEmpty else { throw Supertonic3Error.emptyText }
 
         let sampleRate = await store.config.ae.sampleRate

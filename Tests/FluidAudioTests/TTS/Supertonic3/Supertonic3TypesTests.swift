@@ -130,9 +130,19 @@ final class Supertonic3TypesTests: XCTestCase {
         }
     }
 
-    func testMaxChunkLengthCJKIsTighterThanLatin() {
-        XCTAssertLessThan(
-            Supertonic3Constants.maxChunkLengthCJK,
-            Supertonic3Constants.maxChunkLengthLatin)
+    /// There is no per-language chunk cap any more — the chunker measures the
+    /// encoded window directly. What must still hold is that encoded length
+    /// tracks script expansion rather than Character count, which is the
+    /// reason a per-language cap could never have been right.
+    func testEncodedLengthTracksScriptExpansionNotCharacterCount() {
+        let latin = "morning"
+        XCTAssertEqual(
+            Supertonic3TextChunker.encodedLength(of: latin, lang: "en"),
+            latin.count + "<en></en>".count + 1)  // wrapper + appended period
+
+        let hangul = "\u{C544}\u{CE68}"  // 아침 — 2 Characters, 3 jamo each after NFKD
+        XCTAssertGreaterThan(
+            Supertonic3TextChunker.encodedLength(of: hangul, lang: "ko"),
+            hangul.count + "<ko></ko>".count + 1)
     }
 }
