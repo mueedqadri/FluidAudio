@@ -47,6 +47,8 @@ public enum TTSAsrVerifyCommand {
         var totalSteps = Supertonic3Constants.defaultTotalSteps
         var speed = Supertonic3Constants.defaultSpeed
         var silence = Supertonic3Constants.defaultSilenceDuration
+        var veVariant = Supertonic3VectorEstimator.default
+        var veLabel = "default"
 
         var i = 0
         while i < arguments.count {
@@ -102,6 +104,19 @@ public enum TTSAsrVerifyCommand {
                     silence = v
                     i += 1
                 }
+            case "--ve-variant", "--vector-estimator":
+                if i + 1 < arguments.count {
+                    let raw = arguments[i + 1].lowercased()
+                    if let v = Self.parseVectorEstimator(raw) {
+                        veVariant = v
+                        veLabel = raw
+                    } else {
+                        logger.warning(
+                            "Unknown --ve-variant '\(raw)'; keeping the default. "
+                                + "Valid: fp16, int8/int6/int4 (ANE), dyn-int8/dyn-int6/dyn-int4.")
+                    }
+                    i += 1
+                }
             case "--help", "-h":
                 printUsage()
                 return
@@ -152,7 +167,7 @@ public enum TTSAsrVerifyCommand {
                 let stSpeed = speed
                 let stSilence = silence
 
-                let manager = Supertonic3Manager()
+                let manager = Supertonic3Manager(vectorEstimator: veVariant)
                 try await manager.initialize()
 
                 // An explicit --voice-style <path> wins; otherwise --voice
@@ -183,7 +198,9 @@ public enum TTSAsrVerifyCommand {
                 logger.info(
                     "Supertonic-3 initialized (voice=\(resolvedVoice) lang=\(stLanguage) "
                         + "steps=\(stTotalSteps) speed=\(String(format: "%.2f", stSpeed)) "
-                        + "silence=\(String(format: "%.2f", stSilence))s)")
+                        + "silence=\(String(format: "%.2f", stSilence))s "
+                        + "ve=\(veLabel) "
+                        + "maxChunk=\(Supertonic3Constants.maxChunkLengthLatin))")
 
                 synthesize = { phrase in
                     let result = try await manager.synthesize(
@@ -427,6 +444,21 @@ public enum TTSAsrVerifyCommand {
         }
     }
 
+    /// Map a `--ve-variant` token to a `Supertonic3VectorEstimator`. Mirrors
+    /// `TTSCommand.parseSupertonicVE` so both commands accept the same spelling.
+    private static func parseVectorEstimator(_ raw: String) -> Supertonic3VectorEstimator? {
+        func q(_ s: String) -> Supertonic3Quantization? { Supertonic3Quantization(rawValue: s) }
+        switch raw {
+        case "fp16", "fp16dynamic": return .fp16Dynamic
+        case "default", "": return .default
+        case "int8", "int6", "int4", "ane-int8", "ane-int6", "ane-int4":
+            return q(String(raw.split(separator: "-").last!)).map { .aneBucketed($0) }
+        case "dyn-int8", "dyn-int6", "dyn-int4", "dynamic-int8", "dynamic-int6", "dynamic-int4":
+            return q("int" + String(raw.suffix(1))).map { .dynamic($0) }
+        default: return nil
+        }
+    }
+
     /// Count sentence-terminal punctuation. Approximate by design — it does
     /// not special-case abbreviations or decimals, so corpora meant for this
     /// metric should avoid them (see `Benchmarks/Supertonic3`). Comparing the
@@ -480,6 +512,9 @@ public enum TTSAsrVerifyCommand {
               --total-steps <n>     Denoising steps (default: 8)
               --speed <x>           Speed multiplier (default: 1.05)
               --silence <s>         Inter-chunk silence seconds (default: 0.05)
+              --ve-variant <name>   VectorEstimator build: fp16 | int8 | int6 |
+                                    int4 (ANE-bucketed, default) | dyn-int8 |
+                                    dyn-int6 | dyn-int4
 
             Example:
               fluidaudio tts-asr-verify \\

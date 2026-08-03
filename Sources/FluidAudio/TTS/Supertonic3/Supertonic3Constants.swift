@@ -87,16 +87,28 @@ public enum Supertonic3Constants {
     /// (120 for CJK); freezing T at 128 during conversion is what forces a
     /// cap here at all.
     ///
-    /// Held at 70 because of #669, and **confirmed by measurement**: raising
-    /// it to 110 on `Benchmarks/Supertonic3/paragraphs.txt` cut mid-clause
-    /// seams (54 → 30) but took macro WER from ~1.5% to **12.2%**, with whole
-    /// clauses dropped from the audio and words mangled ("Distances" →
-    /// "Distas"). The seam win is not worth losing the words.
+    /// Held at 70 for #669, but that cap is **precision-dependent, not a limit
+    /// of the weights**. Measured on `Benchmarks/Supertonic3/paragraphs.txt`
+    /// with `tts-asr-verify --ve-variant`:
     ///
-    /// So the export degrades well before its own 128-token window is full,
-    /// while the reference runs the same weights at 300 characters. Both
-    /// facts point at the conversion rather than the weights. Raising this
-    /// safely requires a re-export, not a constant change — see MAC-395.
+    /// | VectorEstimator | cap 70 | cap 110 |
+    /// | --- | --- | --- |
+    /// | `int4` (this file's default) | 0.88% WER | **7.63% WER** |
+    /// | `int8` | 0.24% WER | 0.24% WER |
+    ///
+    /// Only int4 collapses when chunks grow; int8 is flat, and at 110 it also
+    /// cuts spurious sentence ends 35 → 21 because there are fewer seams to
+    /// fabricate a period at. Cross-checked against the reference fp32 ONNX
+    /// graphs: with text padded to 128 and the latent padded to its bucket —
+    /// i.e. every shape constraint this export imposes — fp32 transcribes
+    /// word-perfect at 110 *and* at the demo's 300. So neither the frozen T
+    /// axis nor latent bucketing is at fault; 4-bit palettization is, its
+    /// ~3.4% per-step error compounding across the 8-step denoising loop.
+    ///
+    /// Raising this therefore only needs the caller to select int8 (MacReader
+    /// already does). Reaching the reference's 300 is a separate matter: it
+    /// needs a re-export, since `textTFixed` truncates and `text_emb` is
+    /// pinned at 128 in the VectorEstimator too. See MAC-395.
     public static let maxChunkLengthLatin: Int = 70
 
     /// Chunk cap for Korean / Japanese. CJK expands to more codepoints per

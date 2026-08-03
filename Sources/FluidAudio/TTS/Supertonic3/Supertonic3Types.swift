@@ -89,9 +89,15 @@ public enum Supertonic3VectorEstimator: Sendable, Equatable {
     case dynamic(Supertonic3Quantization)
     case aneBucketed(Supertonic3Quantization)
 
-    /// Default: ANE-bucketed int4 — ~94% on the ANE, ~2.7× faster end-to-end,
-    /// 4-bit k-means palettization that is perceptually clean. The historical
-    /// fp16 dynamic build stays available via `--ve-variant fp16`.
+    /// Default: ANE-bucketed int4 — ~94% on the ANE, ~2.7× faster end-to-end.
+    ///
+    /// 4-bit palettization is clean only for **short** chunks. Its per-step
+    /// error (~3.4% vs fp32) compounds through the 8-step denoising loop, and
+    /// past roughly 70 characters the words themselves break up: macro WER goes
+    /// 0.88% → 7.63% between a 70- and a 110-character cap, where int8 holds
+    /// 0.24% at both. Callers that raise `maxChunkLengthLatin` must move off
+    /// int4. The historical fp16 dynamic build stays available via
+    /// `--ve-variant fp16`.
     public static let `default`: Supertonic3VectorEstimator = .aneBucketed(.int4)
 
     /// `nil` for FP16; the rawValue (`"int8"`/`"int6"`/`"int4"`) otherwise.
