@@ -32,11 +32,12 @@ _cache = {}
 
 
 def model(root, name, fn, unit):
-    key = (name, fn, unit)
+    key = (root, name, fn, unit)
     if key not in _cache:
+        path = os.path.join(root, f"{name}.mlmodelc")
+        kw = {"function_name": fn} if fn else {}
         _cache[key] = ct.models.CompiledMLModel(
-            os.path.join(root, f"{name}.mlmodelc"),
-            compute_units=_UNIT[unit], function_name=fn)
+            path, compute_units=_UNIT[unit], **kw)
     return _cache[key]
 
 
@@ -70,7 +71,18 @@ def infer_chunk(text, rng, root, ve_backend, unit):
     latent_mask = np.ones((1, 1, latent_len), dtype=np.float32)
     ell = latent_len
 
-    if ve_backend == "onnx":
+    if ve_backend == "ours":
+        # Our shipped dynamic build: variable text axis, variable latent, no padding.
+        from supertonic_ref import ROOT
+        m = model(ROOT, "VectorEstimator", None, unit)
+        for step in range(R.STEPS):
+            noisy = np.array(m.predict({
+                "noisy_latent": noisy, "text_emb": text_emb, "style_ttl": R.ttl,
+                "latent_mask": latent_mask, "text_mask": mask,
+                "current_step": np.array([step], dtype=np.float32),
+                "total_step": np.array([R.STEPS], dtype=np.float32),
+            })["denoised_latent"], dtype=np.float32)
+    elif ve_backend == "onnx":
         for step in range(R.STEPS):
             noisy = R.ve_sess.run(None, {
                 "noisy_latent": noisy, "text_emb": text_emb, "style_ttl": R.ttl,
@@ -106,7 +118,10 @@ if __name__ == "__main__":
     ap.add_argument("--root", required=True, help="dir holding the .mlmodelc bundles")
     ap.add_argument("--keys", default="p1,p2")
     ap.add_argument("--caps", default="300")
-    ap.add_argument("--ve", default="onnx", choices=("onnx", "coreml"))
+    ap.add_argument("--ve", default="onnx", choices=("onnx", "coreml", "ours"),
+                    help="ours = FluidAudio's shipped DYNAMIC VectorEstimator, which already "
+                         "declares text_emb as [1,256,?] and so accepts a 320-token text axis "
+                         "without any re-export")
     ap.add_argument("--unit", default="cpu", choices=("cpu", "ane"))
     ap.add_argument("--tag", default="mf")
     ap.add_argument("--seed", type=int, default=1234,
