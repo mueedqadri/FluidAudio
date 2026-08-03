@@ -1,0 +1,15 @@
+{
+ "ref-p1-cap300-exact": {
+  "cap": 300,
+  "mode": "exact",
+  "chunks": [
+   "He kept every draft, which sounds like sentimentality but was closer to bookkeeping. When a passage stopped working he could go back and find the version before the damage, and often the fault turned out to be a small decision made three revisions earlier for reasons he had long since forgotten.",
+   "Without the record he would have rewritten the same mistake, patiently, for years."
+  ],
+  "tok_lens": [
+   305,
+   91
+  ],
+  "seconds": 24.45
+ }
+}
