@@ -109,14 +109,18 @@ if __name__ == "__main__":
     ap.add_argument("--ve", default="onnx", choices=("onnx", "coreml"))
     ap.add_argument("--unit", default="cpu", choices=("cpu", "ane"))
     ap.add_argument("--tag", default="mf")
+    ap.add_argument("--seed", type=int, default=1234,
+                    help="latent noise seed; sweep it to separate weight damage "
+                         "from Supertonic's own seed-dependent word skipping")
     args = ap.parse_args()
 
     src = json.load(open("paragraphs.json"))
     for key in args.keys.split(","):
         for cap in (int(c) for c in args.caps.split(",")):
-            name = f"{args.tag}-{key}-cap{cap}-ve{args.ve}"
+            sfx = "" if args.seed == 1234 else f"-s{args.seed}"
+            name = f"{args.tag}-{key}-cap{cap}-ve{args.ve}{sfx}"
             print(f"\n[{name}]")
-            rng = np.random.default_rng(1234)
+            rng = np.random.default_rng(args.seed)
             gap = np.zeros(int(0.05 * R.SR), dtype=np.float32)
             parts = []
             for i, c in enumerate(chunk_sim.chunk(src[key], mx=cap)):
