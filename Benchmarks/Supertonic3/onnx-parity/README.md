@@ -65,6 +65,20 @@ VectorEstimator variants fetched into `VectorEstimatorVariants/`.
 - `hybrid_ve.py` — fp32 ONNX everywhere except the denoising loop, which runs
   our CoreML VectorEstimator. The test that isolated the cause.
 - `ve_error.py` — per-step vs compounded quantisation error by chunk length.
-- `chunk_sim.py` — Python mirror of `Supertonic3TextChunker`.
+- `chunk_sim.py` — Python mirror of `Supertonic3TextChunker` as it ships.
+- `chunk_fixed.py` — the proposed chunker, A/B'd against `chunk_sim`. Measures
+  candidates through `preprocess`, the way Swift does.
+- `mf_synth.py` — drives `smdesai/supertonic-3-coreml`'s multi-function
+  (wide-text-axis) stages, with a switchable denoiser.
+- `wide_ours.py` — a 300-char cap with wide-axis text stages standing in and
+  **our own** VectorEstimator and Vocoder doing the rest. Pure CoreML by
+  necessity: onnxruntime plus several CoreML models in one process segfaults.
+- `dash_probe.py` — how long a pause does each punctuation mark buy? One clause
+  per variant, short enough to be a single chunk, so chunking cannot confound
+  the result.
+- `seam_audit.py` — counts, without synthesizing, seams that land somewhere the
+  reader was not expecting a break.
+- `axis_pairing.py` — do the text and latent axes have to bucket independently?
+  (No: 0.877 latent frames per text token, r=0.997.)
 
 Outputs land in `out/`; transcribe with `fluidaudio transcribe out/<file>.wav`.
