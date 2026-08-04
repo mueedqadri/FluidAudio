@@ -8,11 +8,29 @@ import Foundation
 ///
 /// Those last two fallbacks are a **deviation from the reference**, which only
 /// ever breaks at sentence boundaries and hands an over-long sentence to the
-/// model whole. We cannot: `textTFixed = 128` is frozen into the CoreML
+/// model whole. We cannot in general: a text axis is frozen into every CoreML
 /// export, and anything past it is silently truncated by
-/// `Supertonic3UnicodeProcessor.encode`. Dropping words is worse than a seam,
-/// so the fallbacks stay until the text stages are re-exported with a larger
-/// text axis.
+/// `Supertonic3UnicodeProcessor.encode`. Dropping words is worse than a seam.
+///
+/// ## Two caps, not one
+///
+/// Packing and atomicity are separate questions, and this chunker answers them
+/// with separate numbers:
+///
+/// - `maxTokens` (128) is how much **may be packed together**. Short sentences
+///   combine up to it, and every seam so produced is a real sentence boundary
+///   the model already knows how to pronounce.
+/// - `wholeSentenceTokens` (320) is how long a **single sentence** may be and
+///   still be emitted intact, on the wide `.cpuOnly` stages.
+///
+/// The gap between them is the whole point. A 215-token sentence used to
+/// become three chunks with two invented sentence endings inside it; now it is
+/// one chunk. It is deliberately *not* packed with its neighbours — a seam
+/// between two complete sentences costs nothing, while widening a chunk drags
+/// short sentences onto the slower CPU tier for no prosody gain.
+///
+/// Only a sentence past `wholeSentenceTokens` still clause-splits, and its
+/// pieces are then free to land back on the fast tier if they fit.
 ///
 /// ## Why the cap is measured in encoded tokens
 ///
@@ -59,18 +77,27 @@ enum Supertonic3TextChunker {
             .unicodeScalars.count
     }
 
-    /// Split `text` so that every chunk encodes to at most `maxTokens`.
+    /// Split `text` into chunks the models can synthesize.
     ///
     /// - Parameters:
     ///   - lang: language tag; both the wrapper cost and the terminator set
     ///     depend on it, so it cannot be inferred later.
-    ///   - maxTokens: defaults to the models' pinned text axis. Lower it only
-    ///     to leave deliberate headroom.
+    ///   - maxTokens: how much may be packed into one chunk. Defaults to the
+    ///     tier-1 text axis. Lower it only to leave deliberate headroom.
+    ///   - wholeSentenceTokens: how long a single sentence may be and still be
+    ///     emitted whole, on the wide tier. Pass `maxTokens` to get the old
+    ///     single-cap behavior — which is what callers do when the wide assets
+    ///     are not installed.
     static func chunk(
         text rawText: String,
         lang: String,
-        maxTokens: Int = Supertonic3Constants.textTFixed
+        maxTokens: Int = Supertonic3Constants.textTFixed,
+        wholeSentenceTokens: Int = Supertonic3Constants.tierCeiling
     ) -> [String] {
+        // A ceiling below the packing cap would be incoherent; clamp rather
+        // than trust the caller, so `wholeSentenceTokens: 0` degrades to
+        // single-cap behavior instead of splitting every sentence to nothing.
+        let ceiling = max(maxTokens, wholeSentenceTokens)
         let trimmed = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
             return []
@@ -85,7 +112,9 @@ enum Supertonic3TextChunker {
                 chunks.append(para)
                 continue
             }
-            packSentences(para, lang: lang, maxTokens: maxTokens, into: &chunks)
+            packSentences(
+                para, lang: lang, maxTokens: maxTokens,
+                wholeSentenceTokens: ceiling, into: &chunks)
         }
         return chunks
     }
@@ -115,7 +144,8 @@ enum Supertonic3TextChunker {
     // MARK: - Sentence packing (with clause + word fallbacks)
 
     private static func packSentences(
-        _ paragraph: String, lang: String, maxTokens: Int, into chunks: inout [String]
+        _ paragraph: String, lang: String, maxTokens: Int,
+        wholeSentenceTokens: Int, into chunks: inout [String]
     ) {
         var current = ""
 
@@ -123,9 +153,24 @@ enum Supertonic3TextChunker {
             let trimmed = sentence.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmed.isEmpty { continue }
 
-            if encodedLength(of: trimmed, lang: lang) > maxTokens {
+            let length = encodedLength(of: trimmed, lang: lang)
+
+            if length > wholeSentenceTokens {
+                // Past even the wide tier: the only remaining choice is where
+                // the seams land, so put them at clause separators the model
+                // already pauses at.
                 flush(&current, into: &chunks)
-                packClauses(trimmed, lang: lang, maxTokens: maxTokens, into: &chunks)
+                packClauses(
+                    trimmed, lang: lang, maxTokens: wholeSentenceTokens, into: &chunks)
+                continue
+            }
+
+            if length > maxTokens {
+                // Tier 2: emitted whole and alone. Packing a neighbour in would
+                // buy no prosody — the seam it removes is a real sentence
+                // boundary — and would move that neighbour onto the CPU tier.
+                flush(&current, into: &chunks)
+                chunks.append(trimmed)
                 continue
             }
 

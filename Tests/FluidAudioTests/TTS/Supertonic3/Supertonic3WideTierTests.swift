@@ -274,7 +274,85 @@ final class Supertonic3WideTierTests: XCTestCase {
             "text_emb should come back [1, 256, \(bucket)] — the VectorEstimator's text axis")
     }
 
+    /// End-to-end proof that the tier-2 branch runs: the report's 215-token
+    /// sentence synthesized as ONE utterance through the wide stages and the
+    /// dynamic VectorEstimator, all `.cpuOnly`.
+    ///
+    /// No throughput assertion — that is [MAC-409]'s job on real hardware, and
+    /// a threshold here would just be flaky. The measurement is logged instead.
+    func testLongSentenceSynthesizesThroughTierTwo() async throws {
+        let modelsRoot = try XCTUnwrap(Self.localModelsRoot)
+        try XCTSkipUnless(
+            Self.hasEverythingForTierTwoSynthesis, "tier-2 synthesis assets not installed locally")
+
+        let store = Supertonic3ModelStore(
+            directory: modelsRoot, computeUnits: .cpuAndNeuralEngine,
+            vectorEstimator: .aneBucketed(.int8))
+        try await store.loadIfNeeded()
+        let tierAvailable = await store.isWideTierAvailable()
+        XCTAssertTrue(tierAvailable)
+
+        let processor = try Supertonic3UnicodeProcessor(
+            unicodeIndexerURL: try await store.unicodeIndexerURL())
+        let synthesizer = Supertonic3Synthesizer(store: store, processor: processor)
+        let style = try Supertonic3VoiceStyle.load(
+            from: Self.localRepoDirectory.appendingPathComponent(
+                Supertonic3Voice.m1.fileName))
+
+        let sentence =
+            "Most of the confidences were unsought - frequently I have feigned sleep, "
+            + "preoccupation, or a hostile levity when I realized by some unmistakable "
+            + "sign that an intimate revelation was quivering on the horizon."
+        let tokens = Supertonic3TextChunker.encodedLength(of: sentence, lang: "en")
+        XCTAssertEqual(
+            Supertonic3TextChunker.chunk(text: sentence, lang: "en").count, 1,
+            "the sentence must reach the synthesizer as one chunk")
+
+        let started = ProcessInfo.processInfo.systemUptime
+        let (samples, duration) = try await synthesizer.synthesize(
+            text: sentence, language: "en", style: style,
+            totalSteps: Supertonic3Constants.defaultTotalSteps,
+            speed: Supertonic3Constants.defaultSpeed,
+            silenceDuration: Supertonic3Constants.defaultSilenceDuration)
+        let elapsed = ProcessInfo.processInfo.systemUptime - started
+
+        XCTAssertGreaterThan(duration, 5, "a \(tokens)-token sentence should run several seconds")
+        XCTAssertEqual(
+            Float(samples.count), duration * Float(Supertonic3Constants.sampleRate),
+            accuracy: Float(Supertonic3Constants.sampleRate),
+            "sample count should match the predicted duration to within a second")
+        XCTAssertFalse(samples.allSatisfy { $0 == 0 }, "output must not be silence")
+
+        // Wide text stages + dynamic VE are .cpuOnly; the vocoder is the shared
+        // tier-1 instance on whatever this store was configured with, which is
+        // the shipping arrangement. Not a pure-CPU figure, deliberately.
+        print(
+            String(
+                format: "[MAC-409 datapoint] tier 2, %d tokens, %.2fs audio in %.2fs "
+                    + "= %.2fx realtime (text stages + VE .cpuOnly, shared vocoder as configured)",
+                tokens, duration, elapsed, Double(duration) / max(elapsed, 0.001)))
+    }
+
     // MARK: - Helpers
+
+    private static var localModelsRoot: URL? {
+        try? TtsCacheDirectory.ensure().appendingPathComponent("Models")
+    }
+
+    /// Everything `loadIfNeeded()` + tier 2 + a voice needs, so the test skips
+    /// instead of reaching for the network.
+    private static var hasEverythingForTierTwoSynthesis: Bool {
+        let repoDir = localRepoDirectory
+        let dynamicVE = ModelNames.Supertonic3.vectorEstimatorFile(
+            precisionSuffix: "int8", bucket: nil)
+        let needed =
+            ModelNames.Supertonic3.requiredFiles(veVariant: "ane-int8")
+            .union(ModelNames.Supertonic3.wideTextStageFiles)
+            .union([dynamicVE, Supertonic3Voice.m1.fileName])
+        return needed.allSatisfy { file in
+            FileManager.default.fileExists(atPath: repoDir.appendingPathComponent(file).path)
+        }
+    }
 
     private static var localRepoDirectory: URL {
         (try? TtsCacheDirectory.ensure().appendingPathComponent("Models/supertonic-3"))

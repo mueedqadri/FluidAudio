@@ -246,6 +246,24 @@ public actor Supertonic3ModelStore {
         }
     }
 
+    /// Whether tier 2 can serve this session at all: both wide text stages
+    /// **and** the dynamic VectorEstimator installed, on a runtime new enough
+    /// for multi-function models.
+    ///
+    /// Asked once before chunking, so an installation without the tier chunks
+    /// exactly as it did before rather than producing long chunks nothing can
+    /// synthesize. The per-chunk `.tierUnavailable` path remains the net for a
+    /// bundle that is present but unloadable.
+    public func isWideTierAvailable() -> Bool {
+        guard #available(macOS 15.0, iOS 18.0, *) else { return false }
+        guard let repoDir = repoDirectory else { return false }
+        let dynamicVE = ModelNames.Supertonic3.vectorEstimatorFile(
+            precisionSuffix: Supertonic3Quantization.int8.rawValue, bucket: nil)
+        return Self.hasWideTextStages(in: repoDir)
+            && FileManager.default.fileExists(
+                atPath: repoDir.appendingPathComponent(dynamicVE).path)
+    }
+
     public func repoDir() throws -> URL {
         guard let dir = repoDirectory else { throw Supertonic3Error.notInitialized }
         return dir

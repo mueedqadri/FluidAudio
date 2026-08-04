@@ -40,8 +40,15 @@ struct Supertonic3Synthesizer {
         silenceDuration: Float
     ) async throws -> (samples: [Float], duration: Float) {
         // The chunker sizes itself against the models' token window directly,
-        // so there is no per-language cap to pick here.
-        let chunks = Supertonic3TextChunker.chunk(text: text, lang: language)
+        // so there is no per-language cap to pick here. How long a single
+        // sentence may run does depend on what is installed: without the wide
+        // stages the ceiling collapses onto the packing cap and chunking is
+        // exactly what it was before the tier existed.
+        let wideTierAvailable = await store.isWideTierAvailable()
+        let chunks = Supertonic3TextChunker.chunk(
+            text: text, lang: language,
+            wholeSentenceTokens: wideTierAvailable
+                ? Supertonic3Constants.tierCeiling : Supertonic3Constants.textTFixed)
         guard !chunks.isEmpty else { throw Supertonic3Error.emptyText }
 
         let sampleRate = await store.config.ae.sampleRate
@@ -50,33 +57,119 @@ struct Supertonic3Synthesizer {
 
         var samples: [Float] = []
         var durationCat: Float = 0
+        var isFirst = true
 
-        for (i, chunk) in chunks.enumerated() {
-            let (chunkSamples, chunkDuration) = try await infer(
+        for chunk in chunks {
+            // One piece per chunk normally; more only when a chunk sized for
+            // tier 2 has to be re-split because the tier turned out to be
+            // unloadable. Either way the seam treatment is identical.
+            for (pieceSamples, pieceDuration) in try await inferChunk(
                 text: chunk, language: language, style: style,
                 totalSteps: totalSteps, speed: speed)
-            if i == 0 {
-                samples = chunkSamples
-                durationCat = chunkDuration
-            } else {
-                samples.append(contentsOf: silence)
-                samples.append(contentsOf: chunkSamples)
-                durationCat += silenceDuration + chunkDuration
+            {
+                if isFirst {
+                    samples = pieceSamples
+                    durationCat = pieceDuration
+                    isFirst = false
+                } else {
+                    samples.append(contentsOf: silence)
+                    samples.append(contentsOf: pieceSamples)
+                    durationCat += silenceDuration + pieceDuration
+                }
             }
         }
 
         return (samples, durationCat)
     }
 
-    // MARK: - Single-chunk inference (batch size 1)
+    // MARK: - Tier routing
 
-    private func infer(
+    /// Which VectorEstimator a chunk runs on, and how its latent is sized.
+    private enum VectorEstimatorPlan {
+        /// Tier 1: the store picks a fixed-length ANE bucket and the latent is
+        /// padded up to it.
+        case bucketed
+        /// Tier 2: one dynamic-shape model, fed the exact latent length. This
+        /// is the mode the quality ceiling was measured in.
+        case dynamic(MLModel)
+    }
+
+    /// Synthesize one chunk, on the tier its encoded length calls for.
+    ///
+    /// Returns a list because the tier-2 attempt can fail on an installed but
+    /// unloadable bundle; the recovery is to re-split the chunk at the tier-1
+    /// window and synthesize the pieces, which sounds like it did before the
+    /// tier existed rather than failing playback.
+    private func inferChunk(
         text: String, language: String,
         style: Supertonic3VoiceStyle,
         totalSteps: Int, speed: Float
+    ) async throws -> [(samples: [Float], duration: Float)] {
+        let tokens = Supertonic3TextChunker.encodedLength(of: text, lang: language)
+        guard tokens > Supertonic3Constants.textTFixed else {
+            return [
+                try await infer(
+                    text: text, language: language, style: style,
+                    totalSteps: totalSteps, speed: speed,
+                    maxLen: Supertonic3Constants.textTFixed,
+                    textEncoder: await store.textEncoder(),
+                    durationPredictor: await store.durationPredictor(),
+                    vectorEstimatorPlan: .bucketed)
+            ]
+        }
+
+        do {
+            let stages = try await store.wideTextStages(forTokenLength: tokens)
+            return [
+                try await infer(
+                    text: text, language: language, style: style,
+                    totalSteps: totalSteps, speed: speed,
+                    maxLen: stages.paddedT,
+                    textEncoder: stages.textEncoder,
+                    durationPredictor: stages.durationPredictor,
+                    vectorEstimatorPlan: .dynamic(try await store.dynamicVectorEstimator()))
+            ]
+        } catch Supertonic3Error.tierUnavailable(let reason) {
+            logger.warning(
+                "Long-sentence tier unavailable for a \(tokens)-token chunk "
+                    + "(\(reason)); splitting at \(Supertonic3Constants.textTFixed)")
+            var pieces: [(samples: [Float], duration: Float)] = []
+            for piece in Supertonic3TextChunker.chunk(
+                text: text, lang: language,
+                wholeSentenceTokens: Supertonic3Constants.textTFixed)
+            {
+                pieces.append(
+                    try await infer(
+                        text: piece, language: language, style: style,
+                        totalSteps: totalSteps, speed: speed,
+                        maxLen: Supertonic3Constants.textTFixed,
+                        textEncoder: await store.textEncoder(),
+                        durationPredictor: await store.durationPredictor(),
+                        vectorEstimatorPlan: .bucketed))
+            }
+            return pieces
+        }
+    }
+
+    // MARK: - Single-chunk inference (batch size 1)
+
+    /// Run the four stages for one chunk against already-resolved models.
+    ///
+    /// The stages arrive as parameters rather than being fetched here so that
+    /// both tiers share this body verbatim: they differ only in which two text
+    /// stages run, what the text axis is padded to, and whether the latent is
+    /// bucket-padded or exact.
+    private func infer(
+        text: String, language: String,
+        style: Supertonic3VoiceStyle,
+        totalSteps: Int, speed: Float,
+        maxLen: Int,
+        textEncoder: MLModel,
+        durationPredictor: MLModel,
+        vectorEstimatorPlan: VectorEstimatorPlan
     ) async throws -> (samples: [Float], duration: Float) {
         let (idsBatch, maskBatch) = try processor.encode(
-            texts: [text], languages: [language])
+            texts: [text], languages: [language], maxLen: maxLen)
         guard let ids = idsBatch.first, let mask = maskBatch.first else {
             throw Supertonic3Error.emptyText
         }
@@ -94,7 +187,7 @@ struct Supertonic3Synthesizer {
         // --- Stage 1: duration_predictor --- //
         let dpOut = try predict(
             stage: "duration_predictor",
-            model: await store.durationPredictor(),
+            model: durationPredictor,
             inputs: [
                 "text_ids": MLFeatureValue(multiArray: textIds),
                 "text_mask": MLFeatureValue(multiArray: textMask),
@@ -112,7 +205,7 @@ struct Supertonic3Synthesizer {
         // --- Stage 2: text_encoder --- //
         let textEncOut = try predict(
             stage: "text_encoder",
-            model: await store.textEncoder(),
+            model: textEncoder,
             inputs: [
                 "text_ids": MLFeatureValue(multiArray: textIds),
                 "text_mask": MLFeatureValue(multiArray: textMask),
@@ -140,7 +233,13 @@ struct Supertonic3Synthesizer {
         // Resolve the VectorEstimator for this chunk. In bucketed (ANE) mode the
         // store returns a fixed-length model and the bucket length to pad up to;
         // in dynamic mode `padLen == trueLen` and no padding happens.
-        let (vectorEstimator, padLen) = try await store.vectorEstimator(forLatentLength: trueLen)
+        let (vectorEstimator, padLen): (MLModel, Int)
+        switch vectorEstimatorPlan {
+        case .bucketed:
+            (vectorEstimator, padLen) = try await store.vectorEstimator(forLatentLength: trueLen)
+        case .dynamic(let model):
+            (vectorEstimator, padLen) = (model, trueLen)
+        }
 
         let veLatentShape = [latentDims.bsz, channels, padLen]
         let veMaskShape = [latentDims.bsz, 1, padLen]

@@ -21,6 +21,16 @@ final class Supertonic3TextChunkerTests: XCTestCase {
         }
     }
 
+    /// Chunk with one cap governing both packing and atomicity — the behavior
+    /// before the wide tier existed, and still exactly what happens when its
+    /// assets are absent. The tests below that pin a small window are testing
+    /// the clause/word fallback ladder, which now activates at the atomicity
+    /// ceiling rather than at the packing cap, so they have to say so.
+    private func chunkSingleCap(_ text: String, lang: String, cap: Int) -> [String] {
+        Supertonic3TextChunker.chunk(
+            text: text, lang: lang, maxTokens: cap, wholeSentenceTokens: cap)
+    }
+
     // MARK: - Trivial inputs
 
     func testEmptyInputReturnsNoChunks() {
@@ -66,14 +76,14 @@ final class Supertonic3TextChunkerTests: XCTestCase {
         let sentence =
             (0..<6).map { _ in String(repeating: "x", count: 18) }
             .joined(separator: ", ") + "."
-        let chunks = Supertonic3TextChunker.chunk(text: sentence, lang: "en", maxTokens: 50)
+        let chunks = chunkSingleCap(sentence, lang: "en", cap: 50)
         XCTAssertGreaterThan(chunks.count, 1)
         assertFits(chunks, lang: "en", 50)
     }
 
     func testVeryLongCommaFreeRunFallsBackToWordBoundaries() {
         let sentence = Array(repeating: "word", count: 40).joined(separator: " ") + "."
-        let chunks = Supertonic3TextChunker.chunk(text: sentence, lang: "en", maxTokens: 30)
+        let chunks = chunkSingleCap(sentence, lang: "en", cap: 30)
         XCTAssertGreaterThan(chunks.count, 1)
         assertFits(chunks, lang: "en", 30)
     }
@@ -159,15 +169,124 @@ final class Supertonic3TextChunkerTests: XCTestCase {
 
     func testSemicolonIsABreakCandidate() {
         let text = "The first clause runs on a while; the second one does too."
-        let chunks = Supertonic3TextChunker.chunk(text: text, lang: "en", maxTokens: 50)
+        let chunks = chunkSingleCap(text, lang: "en", cap: 50)
         XCTAssertEqual(chunks, ["The first clause runs on a while;", "the second one does too."])
         assertFits(chunks, lang: "en", 50)
     }
 
     func testColonIsABreakCandidate() {
         let text = "Here is the point: everything after it is the explanation."
-        let chunks = Supertonic3TextChunker.chunk(text: text, lang: "en", maxTokens: 50)
+        let chunks = chunkSingleCap(text, lang: "en", cap: 50)
         XCTAssertEqual(chunks, ["Here is the point:", "everything after it is the explanation."])
+    }
+
+    // MARK: - Two caps: packing at 128, atomicity at the tier ceiling
+
+    /// The sentence from the original report. At 215 encoded tokens it used to
+    /// come out as three chunks — two invented sentence endings inside one
+    /// sentence — and is now emitted whole.
+    func testTheGatsbySentenceIsOneChunk() {
+        let sentence =
+            "Most of the confidences were unsought - frequently I have feigned sleep, "
+            + "preoccupation, or a hostile levity when I realized by some unmistakable "
+            + "sign that an intimate revelation was quivering on the horizon."
+        let tokens = Supertonic3TextChunker.encodedLength(of: sentence, lang: "en")
+        XCTAssertGreaterThan(tokens, Supertonic3Constants.textTFixed, "\(tokens) tokens")
+        XCTAssertLessThanOrEqual(tokens, Supertonic3Constants.tierCeiling, "\(tokens) tokens")
+
+        XCTAssertEqual(Supertonic3TextChunker.chunk(text: sentence, lang: "en"), [sentence])
+        // Without the wide assets the same sentence still splits, as before.
+        XCTAssertGreaterThan(chunkSingleCap(sentence, lang: "en", cap: window).count, 1)
+    }
+
+    func testSentenceOverThePackingCapIsEmittedWholeAndAlone() {
+        let long = Array(repeating: "word", count: 40).joined(separator: " ") + "."
+        let short = "A short one."
+        XCTAssertGreaterThan(
+            Supertonic3TextChunker.encodedLength(of: long, lang: "en"), window)
+
+        let chunks = Supertonic3TextChunker.chunk(text: "\(short) \(long) \(short)", lang: "en")
+        // The long sentence is its own chunk; the short ones are not dragged
+        // into it, since a seam between whole sentences costs no prosody.
+        XCTAssertEqual(chunks, [short, long, short])
+    }
+
+    func testShortSentencesStillPackAtThePackingCapNotTheCeiling() {
+        // Six ~30-token sentences: packing must still stop at 128, not run on
+        // to the 320 ceiling.
+        let sentence = "The quick brown fox jumped over the lazy dog again."
+        let chunks = Supertonic3TextChunker.chunk(
+            text: Array(repeating: sentence, count: 6).joined(separator: " "), lang: "en")
+        XCTAssertGreaterThan(chunks.count, 1)
+        assertFits(chunks, lang: "en")
+    }
+
+    func testSentencePastTheCeilingClauseSplitsIntoPiecesThatFit() {
+        let sentence =
+            (0..<12).map { _ in String(repeating: "x", count: 30) }
+            .joined(separator: ", ") + "."
+        XCTAssertGreaterThan(
+            Supertonic3TextChunker.encodedLength(of: sentence, lang: "en"),
+            Supertonic3Constants.tierCeiling)
+
+        let chunks = Supertonic3TextChunker.chunk(text: sentence, lang: "en")
+        XCTAssertGreaterThan(chunks.count, 1)
+        assertFits(chunks, lang: "en", Supertonic3Constants.tierCeiling)
+    }
+
+    /// Routing is by *encoded* length, so the tier a sentence lands on depends
+    /// on its script, not its character count.
+    func testKoreanRoutesByEncodedLengthNotCharacterCount() {
+        // NFKD triples each Hangul syllable, so this is tier 2 on 60-odd
+        // Characters where the same count of Latin ones would be tier 1.
+        let korean =
+            String(
+                repeating: "\u{C544}\u{CE68} \u{ACF5}\u{AE30}\u{B294} "
+                    + "\u{C11C}\u{B298}\u{D588}\u{ACE0} \u{BE5B}\u{C774} "
+                    + "\u{B4E4}\u{C5B4}\u{C654}\u{B2E4}",
+                count: 3) + "."
+        let tokens = Supertonic3TextChunker.encodedLength(of: korean, lang: "ko")
+        XCTAssertGreaterThan(tokens, window)
+        XCTAssertLessThan(korean.count, window, "fewer Characters than the window")
+
+        XCTAssertEqual(Supertonic3TextChunker.chunk(text: korean, lang: "ko"), [korean])
+    }
+
+    func testDevanagariSentenceOverTheWindowIsEmittedWhole() {
+        let hindi =
+            String(
+                repeating: "\u{0938}\u{0941}\u{092C}\u{0939} \u{0915}\u{0940} "
+                    + "\u{0939}\u{0935}\u{093E} \u{092E}\u{0947}\u{0902} "
+                    + "\u{0939}\u{0932}\u{094D}\u{0915}\u{0940} "
+                    + "\u{0920}\u{0902}\u{0921}\u{0915} \u{0925}\u{0940} ",
+                count: 5
+            ).trimmingCharacters(in: .whitespaces) + "\u{0964}"
+        let tokens = Supertonic3TextChunker.encodedLength(of: hindi, lang: "hi")
+        XCTAssertGreaterThan(tokens, window)
+        XCTAssertLessThanOrEqual(tokens, Supertonic3Constants.tierCeiling)
+
+        XCTAssertEqual(Supertonic3TextChunker.chunk(text: hindi, lang: "hi"), [hindi])
+    }
+
+    /// Text that already fits one tier-1 chunk must be untouched by any of
+    /// this — same chunk, whether or not the wide tier is in play.
+    func testShortTextIsUnaffectedByTheCeiling() {
+        for text in ["Hello there.", "One. Two. Three. Four.", "Dr. Smith arrived early."] {
+            XCTAssertEqual(
+                Supertonic3TextChunker.chunk(text: text, lang: "en"),
+                chunkSingleCap(text, lang: "en", cap: window),
+                "'\(text)' should chunk identically with and without the tier")
+        }
+    }
+
+    /// A ceiling below the packing cap is incoherent; it degrades to single-cap
+    /// behavior rather than splitting every sentence to nothing.
+    func testCeilingBelowPackingCapIsClamped() {
+        let text = "One part here, a second part there, and a third part at the end."
+        XCTAssertEqual(
+            Supertonic3TextChunker.chunk(
+                text: text, lang: "en", maxTokens: 40, wholeSentenceTokens: 0),
+            chunkSingleCap(text, lang: "en", cap: 40))
     }
 
     /// The separator belongs to the clause it ends. Dropping it would leave the
@@ -175,7 +294,7 @@ final class Supertonic3TextChunkerTests: XCTestCase {
     /// turning a comma into a sentence ending mid-sentence.
     func testClauseSeparatorsSurviveTheSplit() {
         let text = "One part here, a second part there, and a third part at the end."
-        let chunks = Supertonic3TextChunker.chunk(text: text, lang: "en", maxTokens: 40)
+        let chunks = chunkSingleCap(text, lang: "en", cap: 40)
         XCTAssertEqual(chunks, ["One part here,", "a second part there,", "and a third part at the end."])
     }
 }
