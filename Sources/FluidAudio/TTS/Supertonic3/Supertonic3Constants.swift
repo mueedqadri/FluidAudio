@@ -58,6 +58,50 @@ public enum Supertonic3Constants {
     /// `TEXT_T_FIXED = 128` in the reference Python driver.
     public static let textTFixed: Int = 128
 
+    /// Text-axis lengths published for the long-sentence tier.
+    ///
+    /// `textTFixed` is frozen into the ANE export, and **34.9%** of sentences
+    /// do not fit it (measured over all 2,601 sentences of Gatsby). Every one
+    /// of those is split mid-sentence, and a split is heard as an invented
+    /// sentence ending — the chunker can choose where the seam lands but not
+    /// whether there is one. The wide stages carry the same weights on a longer
+    /// text axis, as one multi-function bundle per stage, so a long sentence is
+    /// synthesized whole instead.
+    ///
+    /// Two tiers, selected per chunk by
+    /// `Supertonic3TextChunker.encodedLength(of:lang:)`:
+    ///
+    /// | tokens | text stages | VectorEstimator | placement |
+    /// | --- | --- | --- | --- |
+    /// | ≤ 128 | T128 | ANE-bucketed, padded latent | `.cpuAndNeuralEngine` |
+    /// | 129…320 | smallest wide bucket ≥ n | dynamic, exact latent | `.cpuOnly` |
+    ///
+    /// The wide tier is `.cpuOnly` on both platforms, deliberately: the dynamic
+    /// VectorEstimator's data-dependent shapes bar it from the ANE, and the
+    /// remaining option — `.cpuAndGPU` — would cost iOS background synthesis,
+    /// which CoreML denies to GPU work. One placement everywhere means
+    /// background playback is safe by construction rather than by policy.
+    ///
+    /// Split rate by window on the same corpus: 128 → 34.9%, 192 → 12.3%,
+    /// 256 → 4.0%, 320 → ~1%.
+    public static let wideTextBuckets: [Int] = [192, 256, 320]
+
+    /// Largest sentence, in encoded tokens, the wide tier holds whole (the
+    /// largest published bucket). The 99th percentile sentence is ≈334 tokens,
+    /// so roughly 1% of sentences still clause-split — into pieces that each
+    /// fit, rather than into whatever the budget allowed.
+    public static let tierCeiling: Int = 320
+
+    /// Smallest published wide bucket that holds `tokenLength`, or `nil` when
+    /// no bucket does (i.e. past `tierCeiling`).
+    ///
+    /// Answers only the sizing question, not the routing one: a length that
+    /// tier 1 would serve still reports the smallest wide bucket. Callers route
+    /// on `tokenLength > textTFixed` first.
+    public static func wideTextBucket(forTokenLength tokenLength: Int) -> Int? {
+        wideTextBuckets.first { $0 >= tokenLength }
+    }
+
     // MARK: - Inference
 
     /// Default number of denoising steps for the vector_estimator loop. The

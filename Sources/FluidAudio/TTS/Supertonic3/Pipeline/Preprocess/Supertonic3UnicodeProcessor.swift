@@ -33,8 +33,13 @@ struct Supertonic3UnicodeProcessor {
 
     /// Encode a batch of (text, language) pairs into padded Int64 IDs +
     /// per-row float masks (`[bsz, 1, maxLen]`).
+    ///
+    /// - Parameter maxLen: the text axis to pad (or truncate) to. Defaults to
+    ///   the pinned tier-1 window; the long-sentence tier passes one of
+    ///   `Supertonic3Constants.wideTextBuckets` instead.
     func encode(
-        texts: [String], languages: [String]
+        texts: [String], languages: [String],
+        maxLen: Int = Supertonic3Constants.textTFixed
     ) throws -> (ids: [[Int64]], mask: [[[Float]]]) {
         precondition(texts.count == languages.count, "texts/languages length mismatch")
 
@@ -51,10 +56,10 @@ struct Supertonic3UnicodeProcessor {
             processed.append(cleaned)
         }
 
-        // The text_encoder + duration_predictor models pin the T axis at
-        // `textTFixed` (128). Truncate longer inputs and zero-pad shorter
-        // ones so the bound MLMultiArray shape always matches the spec.
-        let maxLen = Supertonic3Constants.textTFixed
+        // The text stages pin their T axis — at `textTFixed` (128) for tier 1,
+        // at the selected wide bucket for tier 2. Truncate longer inputs and
+        // zero-pad shorter ones so the bound MLMultiArray shape always matches
+        // the spec of whichever stage is about to run.
         let lengths = processed.map { min($0.unicodeScalars.count, maxLen) }
 
         var ids: [[Int64]] = []

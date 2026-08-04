@@ -1005,6 +1005,35 @@ public enum ModelNames {
         public static let vectorEstimatorFile = vectorEstimator + ".mlmodelc"
         public static let vocoderFile = vocoder + ".mlmodelc"
 
+        // MARK: Wide text stages (long-sentence tier)
+
+        /// Wide-text-axis counterparts of the two text stages: same weights,
+        /// one multi-function bundle each, covering
+        /// `Supertonic3Constants.wideTextBuckets`. The names carry a suffix so
+        /// both tiers can sit in one repo directory.
+        public static let textEncoderWide = textEncoder + "Wide"
+        public static let durationPredictorWide = durationPredictor + "Wide"
+
+        public static let textEncoderWideFile = textEncoderWide + ".mlmodelc"
+        public static let durationPredictorWideFile = durationPredictorWide + ".mlmodelc"
+
+        /// Tier-2 assets, deliberately **absent** from
+        /// `requiredFiles(veVariant:)`: a repo without them loads and narrates
+        /// exactly as before, splitting long sentences at the 128-token window.
+        public static let wideTextStageFiles: Set<String> = [
+            textEncoderWideFile, durationPredictorWideFile,
+        ]
+
+        /// CoreML function name inside `TextEncoderWide.mlmodelc` for one text
+        /// bucket, e.g. `text_t320`.
+        public static func textEncoderFunction(bucket: Int) -> String { "text_t\(bucket)" }
+
+        /// CoreML function name inside `DurationPredictorWide.mlmodelc` for one
+        /// text bucket, e.g. `duration_t320`.
+        public static func durationPredictorFunction(bucket: Int) -> String {
+            "duration_t\(bucket)"
+        }
+
         public static let configFile = "tts.json"
         public static let unicodeIndexerFile = "unicode_indexer.json"
 

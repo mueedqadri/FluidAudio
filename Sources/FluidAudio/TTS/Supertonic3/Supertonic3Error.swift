@@ -16,6 +16,12 @@ public enum Supertonic3Error: Error, LocalizedError, Sendable {
     case invalidTensorShape(stage: String, expected: String, got: String)
     case emptyText
 
+    /// The optional long-sentence tier cannot serve a request — assets not
+    /// installed, bundle unreadable, sentence past `tierCeiling`, or a CoreML
+    /// runtime without multi-function support. Never fatal: callers fall back
+    /// to tier-1 behavior (split at the 128-token window) and synthesize.
+    case tierUnavailable(reason: String)
+
     public var errorDescription: String? {
         switch self {
         case .notInitialized:
@@ -45,6 +51,8 @@ public enum Supertonic3Error: Error, LocalizedError, Sendable {
             return "Supertonic3 \(stage) tensor shape mismatch: expected \(expected), got \(got)"
         case .emptyText:
             return "Supertonic3 received empty text after normalization."
+        case .tierUnavailable(let reason):
+            return "Supertonic3 long-sentence tier unavailable: \(reason)"
         }
     }
 }
