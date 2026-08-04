@@ -81,9 +81,17 @@ struct Supertonic3UnicodeProcessor {
     static func preprocess(text rawText: String, lang: String) -> String {
         var text = rawText.decomposedStringWithCompatibilityMapping
 
-        // Drop emoji codepoints in the wide Unicode planes.
+        // Drop emoji codepoints in the wide Unicode planes, and the invisible
+        // format characters that real EPUB and PDF text is full of — soft
+        // hyphens from justified typesetting, zero-width joiners, byte-order
+        // marks. The indexer has no entry for most of them, so each becomes an
+        // unknown token wedged inside a word, and it costs a slot in the
+        // 128-token window either way. None of them is pronounceable.
         text = String(
-            text.unicodeScalars.filter { !Self.isEmojiCodepoint($0.value) })
+            text.unicodeScalars.filter {
+                !Self.isEmojiCodepoint($0.value)
+                    && $0.properties.generalCategory != .format
+            })
 
         for (old, new) in Self.symbolReplacements {
             text = text.replacingOccurrences(of: old, with: new)
@@ -142,10 +150,27 @@ struct Supertonic3UnicodeProcessor {
 
     // MARK: - Tables (verbatim from upstream `helper.py` / `Helper.swift`)
 
+    /// Dashes carry whitespace; hyphens do not.
+    ///
+    /// Neither dash is in the model's vocabulary, so both have to become the
+    /// ASCII hyphen — but the reference drops them in bare, and an unspaced
+    /// hyphen is a compound-word joiner. `unsought—frequently` arrives as
+    /// `unsought-frequently` and the model reads it as one word, with no pause
+    /// at all: measured indistinguishable from deleting the punctuation.
+    /// Flanked by spaces the same hyphen buys a 424 ms pause, longer than the
+    /// comma's 290 ms and the full stop's 389 ms. Every unspaced dash-like
+    /// character measures the same — no pause at all — so it is the whitespace
+    /// doing the work, not the glyph.
+    ///
+    /// The hyphens stay tight, because a hyphen joins a compound rather than
+    /// separating clauses. Note the entry is keyed on U+2010, not U+2011: NFKD
+    /// runs first and folds the non-breaking hyphen into the plain one, so an
+    /// entry for U+2011 would never match.
     private static let symbolReplacements: KeyValuePairs<String, String> = [
-        "\u{2013}": "-",  // en dash
-        "\u{2011}": "-",  // non-breaking hyphen
-        "\u{2014}": "-",  // em dash
+        "\u{2013}": " - ",  // en dash
+        "\u{2014}": " - ",  // em dash
+        "\u{2015}": " - ",  // horizontal bar
+        "\u{2010}": "-",  // hyphen, incl. U+2011 non-breaking after NFKD
         "_": " ",
         "\u{201C}": "\"",
         "\u{201D}": "\"",

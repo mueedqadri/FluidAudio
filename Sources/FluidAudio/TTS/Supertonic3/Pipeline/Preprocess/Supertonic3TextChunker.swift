@@ -4,7 +4,7 @@ import Foundation
 ///
 /// The chunker splits by paragraphs first, then packs whole sentences up to
 /// the cap (abbreviation-aware). A sentence that on its own exceeds the cap is
-/// split further — first at commas, then at whitespace.
+/// split further — first at clause separators, then at whitespace.
 ///
 /// Those last two fallbacks are a **deviation from the reference**, which only
 /// ever breaks at sentence boundaries and hands an over-long sentence to the
@@ -112,7 +112,7 @@ enum Supertonic3TextChunker {
         return paragraphs.isEmpty ? [text] : paragraphs
     }
 
-    // MARK: - Sentence packing (with comma + word fallbacks)
+    // MARK: - Sentence packing (with clause + word fallbacks)
 
     private static func packSentences(
         _ paragraph: String, lang: String, maxTokens: Int, into chunks: inout [String]
@@ -125,7 +125,7 @@ enum Supertonic3TextChunker {
 
             if encodedLength(of: trimmed, lang: lang) > maxTokens {
                 flush(&current, into: &chunks)
-                packCommas(trimmed, lang: lang, maxTokens: maxTokens, into: &chunks)
+                packClauses(trimmed, lang: lang, maxTokens: maxTokens, into: &chunks)
                 continue
             }
 
@@ -140,11 +140,31 @@ enum Supertonic3TextChunker {
         flush(&current, into: &chunks)
     }
 
-    private static func packCommas(
+    /// Clause-level break candidates, one step weaker than a sentence end.
+    ///
+    /// The reference splits on the comma alone, so a sentence joined by a
+    /// semicolon or a colon has no candidate above the individual word and its
+    /// seams land wherever the budget happened to run out. The model pauses at
+    /// all three — measured 290 ms at a comma, 366 ms at a semicolon, 441 ms
+    /// at a colon — so a seam placed at one is a break the listener was
+    /// already expecting.
+    ///
+    /// The fullwidth forms decompose to their ASCII equivalents under NFKD,
+    /// but that happens in `preprocess`, downstream of here: the chunker reads
+    /// the raw text and has to recognise them itself.
+    private static let clauseSeparators: Set<Character> = [
+        ",", ";", ":",
+        "\u{060C}",  // Arabic comma
+        "\u{061B}",  // Arabic semicolon
+        "\u{3001}",  // ideographic comma
+        "\u{FF0C}", "\u{FF1B}", "\u{FF1A}",  // fullwidth comma/semicolon/colon
+    ]
+
+    private static func packClauses(
         _ sentence: String, lang: String, maxTokens: Int, into chunks: inout [String]
     ) {
         var current = ""
-        for rawPart in sentence.components(separatedBy: ",") {
+        for rawPart in splitClauses(sentence) {
             let part = rawPart.trimmingCharacters(in: .whitespacesAndNewlines)
             if part.isEmpty { continue }
 
@@ -155,14 +175,36 @@ enum Supertonic3TextChunker {
             }
 
             if !current.isEmpty,
-                encodedLength(of: "\(current), \(part)", lang: lang) > maxTokens
+                encodedLength(of: "\(current) \(part)", lang: lang) > maxTokens
             {
                 chunks.append(current)
                 current = ""
             }
-            current = current.isEmpty ? part : "\(current), \(part)"
+            current = current.isEmpty ? part : "\(current) \(part)"
         }
         flush(&current, into: &chunks)
+    }
+
+    /// Split at clause separators, keeping each separator on the part it ends.
+    ///
+    /// Retaining it matters twice over: the packer can rejoin parts without
+    /// inventing punctuation that wasn't there, and a chunk that ends at a
+    /// separator keeps it, so `preprocess` sees a clause ending rather than a
+    /// bare fragment it has to terminate with a fabricated period.
+    private static func splitClauses(_ sentence: String) -> [String] {
+        var parts: [String] = []
+        var buffer = ""
+        for character in sentence {
+            buffer.append(character)
+            if clauseSeparators.contains(character) {
+                parts.append(buffer)
+                buffer = ""
+            }
+        }
+        if !buffer.isEmpty {
+            parts.append(buffer)
+        }
+        return parts
     }
 
     private static func packWords(

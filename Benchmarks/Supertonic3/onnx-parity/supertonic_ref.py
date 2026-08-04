@@ -15,7 +15,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 TEXT_T_FIXED = 128
 
 _SYMBOL_REPLACEMENTS = [
-    ("–", "-"), ("‑", "-"), ("—", "-"), ("_", " "),
+    # Dashes carry whitespace; the non-breaking hyphen is a hyphen and does not.
+    ("–", " - "), ("—", " - "), ("‑", "-"), ("_", " "),
     ("“", '"'), ("”", '"'), ("‘", "'"), ("’", "'"),
     ("´", "'"), ("`", "'"), ("[", " "), ("]", " "), ("|", " "),
     ("/", " "), ("#", " "), ("→", " "), ("←", " "),
@@ -37,7 +38,9 @@ def _is_emoji(cp):
 
 def preprocess(text, lang="en"):
     text = unicodedata.normalize("NFKD", text)
-    text = "".join(c for c in text if not _is_emoji(ord(c)))
+    text = "".join(
+        c for c in text
+        if not _is_emoji(ord(c)) and unicodedata.category(c) != "Cf")
     for old, new in _SYMBOL_REPLACEMENTS:
         text = text.replace(old, new)
     for sym in _DECORATIVE:

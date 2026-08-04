@@ -46,6 +46,49 @@ final class Supertonic3UnicodeProcessorTests: XCTestCase {
         XCTAssertTrue(out.contains("-"))
     }
 
+    /// An unspaced em dash is the common case in prose, and it is the one that
+    /// breaks: without the spaces the model reads the two words as a single
+    /// hyphenated compound and puts no pause between them at all.
+    func testUnspacedDashBecomesASpacedHyphen() {
+        let out = Supertonic3UnicodeProcessor.preprocess(
+            text: "unsought\u{2014}frequently", lang: "en")
+        XCTAssertEqual(out, "<en>unsought - frequently.</en>")
+    }
+
+    /// An already-spaced dash must not gain extra spaces; the whitespace
+    /// collapse downstream is what keeps the two cases identical.
+    func testSpacedDashCollapsesToOneSpaceEachSide() {
+        let out = Supertonic3UnicodeProcessor.preprocess(
+            text: "unsought \u{2014} frequently", lang: "en")
+        XCTAssertEqual(out, "<en>unsought - frequently.</en>")
+    }
+
+    func testHorizontalBarIsADashNotAHyphen() {
+        let out = Supertonic3UnicodeProcessor.preprocess(
+            text: "unsought\u{2015}frequently", lang: "en")
+        XCTAssertEqual(out, "<en>unsought - frequently.</en>")
+    }
+
+    /// A hyphen joins a compound rather than separating clauses, so it stays
+    /// tight. NFKD folds U+2011 into U+2010 before the table runs, which is why
+    /// the table is keyed on the latter.
+    func testNonBreakingHyphenStaysUnspaced() {
+        for hyphen in ["\u{2010}", "\u{2011}"] {
+            let out = Supertonic3UnicodeProcessor.preprocess(
+                text: "well\(hyphen)known", lang: "en")
+            XCTAssertEqual(out, "<en>well-known.</en>")
+        }
+    }
+
+    /// Invisible format characters ride along in real EPUB and PDF text. The
+    /// indexer has no entry for most of them, so each one lands mid-word as an
+    /// unknown token and still costs a slot in the 128-token window.
+    func testStripsInvisibleFormatCharacters() {
+        let out = Supertonic3UnicodeProcessor.preprocess(
+            text: "un\u{00AD}sought\u{FEFF}\u{200B}ly\u{200D}", lang: "en")
+        XCTAssertEqual(out, "<en>unsoughtly.</en>")
+    }
+
     func testExpandsAtSymbolAndCommonAbbreviations() {
         let out = Supertonic3UnicodeProcessor.preprocess(
             text: "ping me @ ten, e.g., now", lang: "en")

@@ -154,4 +154,28 @@ final class Supertonic3TextChunkerTests: XCTestCase {
             maxTokens: Supertonic3TextChunker.encodedLength(of: one, lang: "ar"))
         XCTAssertEqual(chunks, [one, two])
     }
+
+    // MARK: - Clause boundaries
+
+    func testSemicolonIsABreakCandidate() {
+        let text = "The first clause runs on a while; the second one does too."
+        let chunks = Supertonic3TextChunker.chunk(text: text, lang: "en", maxTokens: 50)
+        XCTAssertEqual(chunks, ["The first clause runs on a while;", "the second one does too."])
+        assertFits(chunks, lang: "en", 50)
+    }
+
+    func testColonIsABreakCandidate() {
+        let text = "Here is the point: everything after it is the explanation."
+        let chunks = Supertonic3TextChunker.chunk(text: text, lang: "en", maxTokens: 50)
+        XCTAssertEqual(chunks, ["Here is the point:", "everything after it is the explanation."])
+    }
+
+    /// The separator belongs to the clause it ends. Dropping it would leave the
+    /// fragment unterminated, and `preprocess` would fabricate a full stop —
+    /// turning a comma into a sentence ending mid-sentence.
+    func testClauseSeparatorsSurviveTheSplit() {
+        let text = "One part here, a second part there, and a third part at the end."
+        let chunks = Supertonic3TextChunker.chunk(text: text, lang: "en", maxTokens: 40)
+        XCTAssertEqual(chunks, ["One part here,", "a second part there,", "and a third part at the end."])
+    }
 }
