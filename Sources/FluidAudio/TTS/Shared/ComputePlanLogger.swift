@@ -89,10 +89,12 @@ enum ComputePlanLogger {
                 ?? String(
                     data: data, encoding: .ascii)
         else { return "unreadable" }
-        guard let start = head.range(of: "main<"),
+        // Multi-function bundles name their functions `text_t192<ios18>` etc.,
+        // so match the opset marker itself rather than a `main` function.
+        guard let start = head.range(of: "<ios"),
             let end = head.range(of: ">", range: start.upperBound..<head.endIndex)
         else { return "unknown" }
-        return String(head[start.upperBound..<end.lowerBound])
+        return "ios" + String(head[start.upperBound..<end.lowerBound])
     }
 
     @available(macOS 14.4, iOS 17.4, *)

@@ -109,9 +109,18 @@ public actor Supertonic3ModelStore {
         textEncoderModel = try loadModel(
             repoDir: repoDir,
             fileName: ModelNames.Supertonic3.textEncoderFile, config: cfg)
+        // The DP is pinned off the ANE, like Kokoro's PostAlbert. Its plan is
+        // the fleet's one CPU-led sandwich (cpu=105/ane=90, the ANE segment
+        // fed mid-graph from BNNS) and on-device it is exactly the program
+        // whose ANE requests a backgrounded app gets refused
+        // (kIOReturnNotPermitted) — while every ANE-dominant program in the
+        // same process keeps running. It is also the smallest stage, run once
+        // per chunk, so the CPU cost is unmeasurable.
+        let dpCfg = MLModelConfiguration()
+        dpCfg.computeUnits = computeUnits == .cpuAndNeuralEngine ? .cpuOnly : computeUnits
         durationPredictorModel = try loadModel(
             repoDir: repoDir,
-            fileName: ModelNames.Supertonic3.durationPredictorFile, config: cfg)
+            fileName: ModelNames.Supertonic3.durationPredictorFile, config: dpCfg)
         vocoderModel = try loadModel(
             repoDir: repoDir,
             fileName: ModelNames.Supertonic3.vocoderFile, config: cfg)
