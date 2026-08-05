@@ -185,7 +185,7 @@ struct Supertonic3Synthesizer {
         let styleDP = try makeFloat(values: style.dpValues, shape: [1] + Array(style.dpDims.dropFirst()))
 
         // --- Stage 1: duration_predictor --- //
-        let dpOut = try predict(
+        let dpOut = try await predict(
             stage: "duration_predictor",
             model: durationPredictor,
             inputs: [
@@ -203,7 +203,7 @@ struct Supertonic3Synthesizer {
         }
 
         // --- Stage 2: text_encoder --- //
-        let textEncOut = try predict(
+        let textEncOut = try await predict(
             stage: "text_encoder",
             model: textEncoder,
             inputs: [
@@ -272,7 +272,7 @@ struct Supertonic3Synthesizer {
             let currentStep = try makeFloat(values: [Float(step)], shape: [1])
             let totalStep = try makeFloat(values: [Float(totalSteps)], shape: [1])
 
-            let denoisedOut = try predict(
+            let denoisedOut = try await predict(
                 stage: "vector_estimator",
                 model: vectorEstimator,
                 inputs: [
@@ -307,7 +307,7 @@ struct Supertonic3Synthesizer {
         }
 
         // --- Stage 4: vocoder --- //
-        let vocoderOut = try predict(
+        let vocoderOut = try await predict(
             stage: "vocoder",
             model: await store.vocoder(),
             inputs: ["latent": MLFeatureValue(multiArray: vocoderLatent)])
@@ -327,7 +327,7 @@ struct Supertonic3Synthesizer {
 
     private func predict(
         stage: String, model: MLModel, inputs: [String: MLFeatureValue]
-    ) throws -> MLFeatureProvider {
+    ) async throws -> MLFeatureProvider {
         let provider: MLFeatureProvider
         do {
             provider = try MLDictionaryFeatureProvider(dictionary: inputs)
@@ -336,7 +336,13 @@ struct Supertonic3Synthesizer {
                 stage: stage, underlying: "feature provider: \(error)")
         }
         do {
-            return try model.prediction(from: provider)
+            // The async API, matching KokoroAneSynthesizer. Not a style choice:
+            // ~30 s after backgrounding, iOS demotes the app's threads, and a
+            // synchronous prediction submitted from a demoted thread has its
+            // ANE request refused at the kernel (kIOReturnNotPermitted →
+            // "Unable to compute the prediction"). Kokoro, on this API, keeps
+            // synthesizing in the background on the same device.
+            return try await model.prediction(from: provider)
         } catch {
             throw Supertonic3Error.inferenceFailed(stage: stage, underlying: "\(error)")
         }
