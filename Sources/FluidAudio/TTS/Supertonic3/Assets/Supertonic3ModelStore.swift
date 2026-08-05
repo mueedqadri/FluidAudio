@@ -67,13 +67,38 @@ public actor Supertonic3ModelStore {
     private var veComputeUnits: MLComputeUnits {
         // An explicit .cpuOnly request always wins (it already excludes the ANE,
         // so no override is needed). Otherwise dynamic shapes avoid the ANE
-        // (Core ML rejects them) and bucketed builds target it.
+        // (Core ML rejects them) and bucketed builds target it — except on
+        // iOS, where the bucketed VE is one of the programs the kernel refuses
+        // to run for a backgrounded app (see `backgroundSafeUnits`).
         if computeUnits == .cpuOnly { return .cpuOnly }
         switch veOption {
         case .fp16Dynamic: return computeUnits  // preserve historical behavior
         case .dynamic: return .cpuAndGPU
-        case .aneBucketed: return .cpuAndNeuralEngine
+        case .aneBucketed:
+            #if os(iOS)
+            return .cpuOnly
+            #else
+            return .cpuAndNeuralEngine
+            #endif
         }
+    }
+
+    /// Placement for the stages iOS refuses to run on the ANE once the app is
+    /// backgrounded. Field-verified on device (iPhone 13 Pro, A15): the kernel
+    /// returns kIOReturnNotPermitted for the text stages' many-island
+    /// BNNS↔ANE programs and for the bucketed VectorEstimator — at foreground
+    /// QoS, with an ios17-retargeted bit-identical model, minutes or seconds
+    /// after backgrounding alike — while single-block ANE programs (both
+    /// vocoders, Kokoro's stages) keep running in the same process. CPU
+    /// placement is the one configuration that cannot be refused, and the
+    /// all-CPU chain measured 10–18× realtime on the same phone. macOS has no
+    /// background ANE restriction, so it keeps the requested units.
+    private var backgroundSafeUnits: MLComputeUnits {
+        #if os(iOS)
+        return computeUnits == .cpuAndNeuralEngine ? .cpuOnly : computeUnits
+        #else
+        return computeUnits
+        #endif
     }
 
     // MARK: - Public API
@@ -106,18 +131,14 @@ public actor Supertonic3ModelStore {
         let cfg = MLModelConfiguration()
         cfg.computeUnits = computeUnits
 
-        // The two text stages are pinned off the ANE, the same treatment
-        // Kokoro's PostAlbert gets. Their relative-position attention compiles
-        // into many small ANE islands interleaved with BNNS segments (visible
-        // in the kernel dump as successive *_bnns → ANE handoffs), and
-        // on-device those are exactly the programs whose ANE requests a
-        // backgrounded app gets refused (kIOReturnNotPermitted) — while the
-        // single-block ANE programs in the same process (both vocoders,
-        // Kokoro's stages) keep running. Each runs once per chunk, so the CPU
-        // cost is small; the VectorEstimator and vocoder stay on the ANE.
+        // The two text stages take background-safe placement — the same
+        // treatment Kokoro's PostAlbert gets, for the reasons documented on
+        // `backgroundSafeUnits`. Each runs once per chunk, so the cost is
+        // small; the vocoder stays on the ANE everywhere (its single-block
+        // program is background-permitted), and the VectorEstimator's
+        // placement is decided in `veComputeUnits`.
         let textStageCfg = MLModelConfiguration()
-        textStageCfg.computeUnits =
-            computeUnits == .cpuAndNeuralEngine ? .cpuOnly : computeUnits
+        textStageCfg.computeUnits = backgroundSafeUnits
         textEncoderModel = try loadModel(
             repoDir: repoDir,
             fileName: ModelNames.Supertonic3.textEncoderFile, config: textStageCfg)
