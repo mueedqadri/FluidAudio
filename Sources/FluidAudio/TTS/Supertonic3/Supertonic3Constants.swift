@@ -102,6 +102,21 @@ public enum Supertonic3Constants {
         wideTextBuckets.first { $0 >= tokenLength }
     }
 
+    /// Upper bound, in latent slots, of the dynamic-shape stages tier 2 runs.
+    /// The published RangeDims are `[17, 512]` on the dynamic VectorEstimator's
+    /// latent axes and `[4, 512]` on the vocoder's. One slot is
+    /// `ae.base_chunk_size × ttl.chunk_compress_factor` samples — 512 × 6 =
+    /// 3,072 at 44.1 kHz — so 512 slots is ≈35.7 s of audio.
+    ///
+    /// Reachable, because duration is divided by the speed parameter: a
+    /// sentence near `tierCeiling` runs ≈19.5 s at 1× and crosses the window
+    /// below ≈0.55×, well inside the 0.5× a playback UI offers. The
+    /// synthesizer guards the tier-2 plan against this bound and throws
+    /// `.tierUnavailable`, which re-splits the sentence at the 128-token
+    /// window — degrading to a seam instead of failing the prediction with an
+    /// opaque CoreML shape error.
+    public static let dynamicLatentSlotCeiling: Int = 512
+
     // MARK: - Inference
 
     /// Default number of denoising steps for the vector_estimator loop. The

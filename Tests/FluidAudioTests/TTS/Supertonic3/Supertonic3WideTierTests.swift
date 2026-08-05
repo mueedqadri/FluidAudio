@@ -274,6 +274,81 @@ final class Supertonic3WideTierTests: XCTestCase {
             "text_emb should come back [1, 256, \(bucket)] — the VectorEstimator's text axis")
     }
 
+    /// `dynamicLatentSlotCeiling` is a transcription of what the artifacts
+    /// declare, so read it back off the installed models rather than trusting
+    /// the comment: the latent axis of both dynamic-shape stages must top out
+    /// at exactly that many slots. If a re-export ever widens them, this is
+    /// the line that says the constant (and the guard) can move.
+    func testLatentCeilingMatchesThePublishedBounds() throws {
+        let repoDir = Self.localRepoDirectory
+        let veFile = ModelNames.Supertonic3.vectorEstimatorFile(
+            precisionSuffix: "int8", bucket: nil)
+        for (file, input) in [(veFile, "noisy_latent"), ("Vocoder.mlmodelc", "latent")] {
+            try XCTSkipUnless(
+                FileManager.default.fileExists(
+                    atPath: repoDir.appendingPathComponent(file).path),
+                "\(file) not installed in the local cache")
+            let model = try Supertonic3ModelStore.loadTier2Model(
+                repoDir: repoDir, fileName: file, functionName: nil)
+            let constraint = try XCTUnwrap(
+                model.modelDescription.inputDescriptionsByName[input]?.multiArrayConstraint,
+                "\(file) should declare \(input)")
+            // `sizeRangeForDimension` is a count-style NSRange: NSMaxRange is
+            // the exclusive end, so the largest permitted size is one less.
+            let latentAxis = constraint.shapeConstraint.sizeRangeForDimension[2].rangeValue
+            XCTAssertEqual(
+                NSMaxRange(latentAxis) - 1, Supertonic3Constants.dynamicLatentSlotCeiling,
+                "\(file)'s \(input) latent axis should top out at the guarded ceiling")
+        }
+    }
+
+    /// The regression the ceiling guard exists for: a tier-2 sentence at a
+    /// slow speed predicts a duration past the 512-slot latent window
+    /// (≈35.7 s). Ungated, CoreML rejects the bind and the whole synthesize
+    /// call fails — no audio at all. Guarded, it degrades to tier-1
+    /// re-splitting and plays.
+    func testSlowSpeedLongSentenceFallsBackInsteadOfFailing() async throws {
+        let modelsRoot = try XCTUnwrap(Self.localModelsRoot)
+        try XCTSkipUnless(
+            Self.hasEverythingForTierTwoSynthesis, "tier-2 synthesis assets not installed locally")
+
+        let store = Supertonic3ModelStore(
+            directory: modelsRoot, computeUnits: .cpuAndNeuralEngine,
+            vectorEstimator: .aneBucketed(.int8))
+        try await store.loadIfNeeded()
+
+        let processor = try Supertonic3UnicodeProcessor(
+            unicodeIndexerURL: try await store.unicodeIndexerURL())
+        let synthesizer = Supertonic3Synthesizer(store: store, processor: processor)
+        let style = try Supertonic3VoiceStyle.load(
+            from: Self.localRepoDirectory.appendingPathComponent(
+                Supertonic3Voice.m1.fileName))
+
+        let sentence =
+            "Most of the confidences were unsought - frequently I have feigned sleep, "
+            + "preoccupation, or a hostile levity when I realized by some unmistakable "
+            + "sign that an intimate revelation was quivering on the horizon."
+
+        // 0.3× stands in for "slowest supported rate on a long sentence":
+        // ≈46 s predicted, comfortably past the window, while the re-split
+        // 128-token pieces still fit their ANE buckets.
+        let (samples, duration) = try await synthesizer.synthesize(
+            text: sentence, language: "en", style: style,
+            totalSteps: Supertonic3Constants.defaultTotalSteps,
+            speed: 0.3,
+            silenceDuration: Supertonic3Constants.defaultSilenceDuration)
+
+        XCTAssertGreaterThan(
+            duration, 35.7,
+            "the predicted duration must actually cross the latent window for "
+                + "this test to prove anything")
+        XCTAssertEqual(
+            Float(samples.count), duration * Float(Supertonic3Constants.sampleRate),
+            accuracy: Float(Supertonic3Constants.sampleRate),
+            "sample count should match the predicted duration to within a second")
+        XCTAssertFalse(samples.allSatisfy { $0 == 0 }, "output must not be silence")
+    }
+
     /// End-to-end proof that the tier-2 branch runs: the report's 215-token
     /// sentence synthesized as ONE utterance through the wide stages and the
     /// dynamic VectorEstimator, all `.cpuOnly`.

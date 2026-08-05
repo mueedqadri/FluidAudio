@@ -238,6 +238,18 @@ struct Supertonic3Synthesizer {
         case .bucketed:
             (vectorEstimator, padLen) = try await store.vectorEstimator(forLatentLength: trueLen)
         case .dynamic(let model):
+            // "Dynamic" is not unbounded: the VectorEstimator and the vocoder
+            // both publish a 512-slot latent ceiling, and a near-`tierCeiling`
+            // sentence at a slow speed predicts a duration past it. Fail as
+            // the tier being unavailable for this chunk — the caller re-splits
+            // at the 128-token window and the pieces fit — rather than letting
+            // CoreML reject the bind, which nothing upstream can recover from.
+            guard trueLen <= Supertonic3Constants.dynamicLatentSlotCeiling else {
+                throw Supertonic3Error.tierUnavailable(
+                    reason: "a \(trueLen)-slot latent exceeds the "
+                        + "\(Supertonic3Constants.dynamicLatentSlotCeiling)-slot window the "
+                        + "dynamic VectorEstimator and vocoder publish (≈35.7 s of audio)")
+            }
             (vectorEstimator, padLen) = (model, trueLen)
         }
 
