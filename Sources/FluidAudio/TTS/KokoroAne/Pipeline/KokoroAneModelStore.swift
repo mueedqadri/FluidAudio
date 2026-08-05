@@ -266,6 +266,9 @@ public actor KokoroAneModelStore {
         cfg.allowLowPrecisionAccumulationOnGPU = true
         let start = Date()
         let model = try MLModel(contentsOf: url, configuration: cfg)
+        ComputePlanLogger.logPlacement(
+            modelURL: url, configuration: cfg,
+            label: url.deletingPathExtension().lastPathComponent)
         return (model, Date().timeIntervalSince(start) * 1000)
     }
 

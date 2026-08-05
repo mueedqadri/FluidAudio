@@ -173,6 +173,7 @@ public struct KokoroAneSynthesizer {
     ) async throws -> MLFeatureProvider {
         let provider = try MLDictionaryFeatureProvider(
             dictionary: inputs.mapValues { MLFeatureValue(multiArray: $0) })
+        ComputePlanLogger.notePredictionQoS(stage: "kokoro.\(stage.rawValue)")
         let clock = ContinuousClock()
         let start = clock.now
         do {

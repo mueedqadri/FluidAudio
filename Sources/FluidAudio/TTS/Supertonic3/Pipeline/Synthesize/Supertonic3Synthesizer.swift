@@ -335,6 +335,7 @@ struct Supertonic3Synthesizer {
             throw Supertonic3Error.inferenceFailed(
                 stage: stage, underlying: "feature provider: \(error)")
         }
+        ComputePlanLogger.notePredictionQoS(stage: "supertonic.\(stage)")
         do {
             // The async API, matching KokoroAneSynthesizer. Not a style choice:
             // ~30 s after backgrounding, iOS demotes the app's threads, and a

@@ -327,7 +327,11 @@ public actor Supertonic3ModelStore {
             throw Supertonic3Error.tierUnavailable(reason: "\(fileName) is not installed")
         }
         do {
-            return try MLModel(contentsOf: modelURL, configuration: cfg)
+            let model = try MLModel(contentsOf: modelURL, configuration: cfg)
+            ComputePlanLogger.logPlacement(
+                modelURL: modelURL, configuration: cfg,
+                label: fileName + (functionName.map { " [\($0)]" } ?? ""))
+            return model
         } catch {
             let function = functionName.map { " [\($0)]" } ?? ""
             throw Supertonic3Error.tierUnavailable(
@@ -345,6 +349,8 @@ public actor Supertonic3ModelStore {
         do {
             let model = try MLModel(contentsOf: modelURL, configuration: config)
             logger.info("Loaded \(fileName)")
+            ComputePlanLogger.logPlacement(
+                modelURL: modelURL, configuration: config, label: fileName)
             return model
         } catch {
             throw Supertonic3Error.corruptedModel(fileName, underlying: "\(error)")
