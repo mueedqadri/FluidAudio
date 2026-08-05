@@ -53,7 +53,7 @@ enum ComputePlanLogger {
                 let summary = counts.sorted { $0.value > $1.value }
                     .map { "\($0.key)=\($0.value)" }
                     .joined(separator: " ")
-                logger.info("[plan] \(label): \(summary)")
+                logger.info("[plan] \(label): opset=\(milOpset(of: modelURL)) \(summary)")
             } catch {
                 logger.warning("[plan] \(label): compute plan failed to load: \(error)")
             }
@@ -76,6 +76,23 @@ enum ComputePlanLogger {
                 tally(block: nested, plan: plan, into: &counts)
             }
         }
+    }
+
+    /// The opset stamped into the compiled program (`main<ios17>` vs
+    /// `main<ios18>`), read off the installed bytes — so the log proves what
+    /// the device is actually running, not what a manifest intended.
+    private static func milOpset(of modelURL: URL) -> String {
+        let mil = modelURL.appendingPathComponent("model.mil")
+        guard let handle = try? FileHandle(forReadingFrom: mil),
+            let data = try? handle.read(upToCount: 600),
+            let head = String(data: data, encoding: .utf8)
+                ?? String(
+                    data: data, encoding: .ascii)
+        else { return "unreadable" }
+        guard let start = head.range(of: "main<"),
+            let end = head.range(of: ">", range: start.upperBound..<head.endIndex)
+        else { return "unknown" }
+        return String(head[start.upperBound..<end.lowerBound])
     }
 
     @available(macOS 14.4, iOS 17.4, *)

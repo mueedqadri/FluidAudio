@@ -173,6 +173,10 @@ struct Supertonic3Synthesizer {
         guard let ids = idsBatch.first, let mask = maskBatch.first else {
             throw Supertonic3Error.emptyText
         }
+        // Errors and QoS lines must say which tier's model failed — the wide
+        // stages are distinct CPU-pinned programs, and a stage name alone has
+        // been ambiguous in field logs.
+        let tierTag = maxLen == Supertonic3Constants.textTFixed ? "" : "-wide"
         let textLen = ids.count
 
         let ids32 = ids.map { Int32(clamping: $0) }
@@ -186,7 +190,7 @@ struct Supertonic3Synthesizer {
 
         // --- Stage 1: duration_predictor --- //
         let dpOut = try await predict(
-            stage: "duration_predictor",
+            stage: "duration_predictor\(tierTag)",
             model: durationPredictor,
             inputs: [
                 "text_ids": MLFeatureValue(multiArray: textIds),
@@ -204,7 +208,7 @@ struct Supertonic3Synthesizer {
 
         // --- Stage 2: text_encoder --- //
         let textEncOut = try await predict(
-            stage: "text_encoder",
+            stage: "text_encoder\(tierTag)",
             model: textEncoder,
             inputs: [
                 "text_ids": MLFeatureValue(multiArray: textIds),
@@ -273,7 +277,7 @@ struct Supertonic3Synthesizer {
             let totalStep = try makeFloat(values: [Float(totalSteps)], shape: [1])
 
             let denoisedOut = try await predict(
-                stage: "vector_estimator",
+                stage: "vector_estimator\(tierTag)",
                 model: vectorEstimator,
                 inputs: [
                     "noisy_latent": MLFeatureValue(multiArray: noisyLatent),
