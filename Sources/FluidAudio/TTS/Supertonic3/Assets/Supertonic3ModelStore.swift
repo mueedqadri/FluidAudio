@@ -106,21 +106,24 @@ public actor Supertonic3ModelStore {
         let cfg = MLModelConfiguration()
         cfg.computeUnits = computeUnits
 
+        // The two text stages are pinned off the ANE, the same treatment
+        // Kokoro's PostAlbert gets. Their relative-position attention compiles
+        // into many small ANE islands interleaved with BNNS segments (visible
+        // in the kernel dump as successive *_bnns → ANE handoffs), and
+        // on-device those are exactly the programs whose ANE requests a
+        // backgrounded app gets refused (kIOReturnNotPermitted) — while the
+        // single-block ANE programs in the same process (both vocoders,
+        // Kokoro's stages) keep running. Each runs once per chunk, so the CPU
+        // cost is small; the VectorEstimator and vocoder stay on the ANE.
+        let textStageCfg = MLModelConfiguration()
+        textStageCfg.computeUnits =
+            computeUnits == .cpuAndNeuralEngine ? .cpuOnly : computeUnits
         textEncoderModel = try loadModel(
             repoDir: repoDir,
-            fileName: ModelNames.Supertonic3.textEncoderFile, config: cfg)
-        // The DP is pinned off the ANE, like Kokoro's PostAlbert. Its plan is
-        // the fleet's one CPU-led sandwich (cpu=105/ane=90, the ANE segment
-        // fed mid-graph from BNNS) and on-device it is exactly the program
-        // whose ANE requests a backgrounded app gets refused
-        // (kIOReturnNotPermitted) — while every ANE-dominant program in the
-        // same process keeps running. It is also the smallest stage, run once
-        // per chunk, so the CPU cost is unmeasurable.
-        let dpCfg = MLModelConfiguration()
-        dpCfg.computeUnits = computeUnits == .cpuAndNeuralEngine ? .cpuOnly : computeUnits
+            fileName: ModelNames.Supertonic3.textEncoderFile, config: textStageCfg)
         durationPredictorModel = try loadModel(
             repoDir: repoDir,
-            fileName: ModelNames.Supertonic3.durationPredictorFile, config: dpCfg)
+            fileName: ModelNames.Supertonic3.durationPredictorFile, config: textStageCfg)
         vocoderModel = try loadModel(
             repoDir: repoDir,
             fileName: ModelNames.Supertonic3.vocoderFile, config: cfg)
