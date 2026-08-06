@@ -93,9 +93,8 @@ public struct TTS {
         var supertonicTotalSteps: Int = Supertonic3Constants.defaultTotalSteps
         var supertonicSpeed: Float = Supertonic3Constants.defaultSpeed
         var supertonicSilence: Float = Supertonic3Constants.defaultSilenceDuration
-        // VectorEstimator build: fp16 | int8/int6/int4 (ANE-bucketed) |
-        // dyn-int8/dyn-int6/dyn-int4 (dynamic CPU/GPU). Default fp16.
-        var supertonicVE: Supertonic3VectorEstimator = .aneBucketed(.int4)
+        // VectorEstimator weight precision: fp16 | int8 | int6 | int4.
+        var supertonicVE: Supertonic3VectorEstimator = .default
 
         var i = 0
         while i < arguments.count {
@@ -175,8 +174,8 @@ public struct TTS {
                         supertonicVE = v
                     } else {
                         logger.warning(
-                            "Unknown --ve-variant '\(raw)'; using fp16. "
-                                + "Valid: fp16, int8/int6/int4 (ANE), dyn-int8/dyn-int6/dyn-int4.")
+                            "Unknown --ve-variant '\(raw)'; keeping the default (int8). "
+                                + "Valid: fp16, int8, int6, int4.")
                     }
                     i += 1
                 }
@@ -794,14 +793,12 @@ public struct TTS {
     /// `--voice-style <file.json>`, which overrides `--voice`.
     /// Map a `--ve-variant` token to a `Supertonic3VectorEstimator`.
     private static func parseSupertonicVE(_ raw: String) -> Supertonic3VectorEstimator? {
-        func q(_ s: String) -> Supertonic3Quantization? { Supertonic3Quantization(rawValue: s) }
         switch raw {
         case "fp16", "fp16dynamic": return .fp16Dynamic
-        case "default", "": return .aneBucketed(.int4)
-        case "int8", "int6", "int4", "ane-int8", "ane-int6", "ane-int4":
-            return q(String(raw.split(separator: "-").last!)).map { .aneBucketed($0) }
-        case "dyn-int8", "dyn-int6", "dyn-int4", "dynamic-int8", "dynamic-int6", "dynamic-int4":
-            return q("int" + String(raw.suffix(1))).map { .dynamic($0) }
+        case "default", "": return .default
+        case "int8", "int6", "int4", "dyn-int8", "dyn-int6", "dyn-int4":
+            return Supertonic3Quantization(rawValue: String(raw.split(separator: "-").last!))
+                .map { .dynamic($0) }
         default: return nil
         }
     }

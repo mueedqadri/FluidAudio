@@ -1000,29 +1000,21 @@ public enum ModelNames {
         public static let vectorEstimator = "VectorEstimator"
         public static let vocoder = "Vocoder"
 
-        public static let textEncoderFile = textEncoder + ".mlmodelc"
-        public static let durationPredictorFile = durationPredictor + ".mlmodelc"
         public static let vectorEstimatorFile = vectorEstimator + ".mlmodelc"
         public static let vocoderFile = vocoder + ".mlmodelc"
 
-        // MARK: Wide text stages (long-sentence tier)
+        // MARK: Text stages
 
-        /// Wide-text-axis counterparts of the two text stages: same weights,
-        /// one multi-function bundle each, covering
-        /// `Supertonic3Constants.wideTextBuckets`. The names carry a suffix so
-        /// both tiers can sit in one repo directory.
+        /// The two text stages, as one multi-function bundle each covering
+        /// `Supertonic3Constants.wideTextBuckets`. The `Wide` suffix is
+        /// historical — it distinguished them from a narrow T128 export that
+        /// the pipeline no longer loads — and is kept because it is the
+        /// published file name on the mirror.
         public static let textEncoderWide = textEncoder + "Wide"
         public static let durationPredictorWide = durationPredictor + "Wide"
 
         public static let textEncoderWideFile = textEncoderWide + ".mlmodelc"
         public static let durationPredictorWideFile = durationPredictorWide + ".mlmodelc"
-
-        /// Tier-2 assets, deliberately **absent** from
-        /// `requiredFiles(veVariant:)`: a repo without them loads and narrates
-        /// exactly as before, splitting long sentences at the 128-token window.
-        public static let wideTextStageFiles: Set<String> = [
-            textEncoderWideFile, durationPredictorWideFile,
-        ]
 
         /// CoreML function name inside `TextEncoderWide.mlmodelc` for one text
         /// bucket, e.g. `text_t320`.
@@ -1037,68 +1029,34 @@ public enum ModelNames {
         public static let configFile = "tts.json"
         public static let unicodeIndexerFile = "unicode_indexer.json"
 
-        /// The four CoreML bundles required by `Supertonic3Synthesizer`.
-        public static let requiredModels: Set<String> = [
-            textEncoderFile,
-            durationPredictorFile,
-            vectorEstimatorFile,
-            vocoderFile,
-        ]
-
-        /// Models + companion JSON files the downloader must fetch.
-        public static let requiredFiles: Set<String> =
-            requiredModels.union([configFile, unicodeIndexerFile])
-
         // MARK: VectorEstimator variants
 
-        /// The three modules shared by every VectorEstimator variant.
+        /// The three bundles every VectorEstimator variant shares.
         public static let sharedModelFiles: Set<String> = [
-            textEncoderFile, durationPredictorFile, vocoderFile,
+            textEncoderWideFile, durationPredictorWideFile, vocoderFile,
         ]
         public static let companionFiles: Set<String> = [configFile, unicodeIndexerFile]
 
-        /// Fixed latent buckets published for ANE residency (smallest ≥ chunk
-        /// length is selected at synthesis time).
-        public static let aneBuckets: [Int] = [128, 256, 512]
-
-        /// Quantized / fixed-length VectorEstimator builds live under this repo
-        /// subdirectory; the FP16 dynamic model + the 3 shared modules sit at
-        /// the repo root.
+        /// Quantized VectorEstimator builds live under this repo subdirectory;
+        /// the FP16 model + the 3 shared bundles sit at the repo root.
         public static let variantsSubdir = "VectorEstimatorVariants"
 
-        /// Bundle (dir) name of a VectorEstimator build, e.g.
-        /// `VectorEstimator`, `VectorEstimator_int4`, `VectorEstimator_L256_int8`.
-        public static func vectorEstimatorName(precisionSuffix: String?, bucket: Int?) -> String {
-            var name = vectorEstimator
-            if let bucket { name += "_L\(bucket)" }
-            if let precisionSuffix { name += "_\(precisionSuffix)" }
-            return name
-        }
-
         /// Repo-relative `.mlmodelc` path for a VectorEstimator build. FP16
-        /// dynamic stays at the root; every quantized/bucketed variant is under
-        /// `variantsSubdir`.
-        public static func vectorEstimatorFile(precisionSuffix: String?, bucket: Int?) -> String {
-            let base = vectorEstimatorName(precisionSuffix: precisionSuffix, bucket: bucket) + ".mlmodelc"
-            if precisionSuffix == nil && bucket == nil { return base }
-            return "\(variantsSubdir)/\(base)"
+        /// stays at the root; every quantized variant is under `variantsSubdir`.
+        public static func vectorEstimatorFile(precisionSuffix: String?) -> String {
+            guard let precisionSuffix else { return vectorEstimatorFile }
+            return "\(variantsSubdir)/\(vectorEstimator)_\(precisionSuffix).mlmodelc"
         }
 
         /// Files to fetch for a given VectorEstimator download variant token
         /// (see `Supertonic3VectorEstimator.downloadVariant`). `nil` ⇒ the
-        /// historical FP16 dynamic model.
+        /// historical FP16 model.
         public static func requiredFiles(veVariant: String?) -> Set<String> {
             var set = sharedModelFiles.union(companionFiles)
-            switch veVariant {
-            case .some(let v) where v.hasPrefix("dyn-"):
-                set.insert(vectorEstimatorFile(precisionSuffix: String(v.dropFirst(4)), bucket: nil))
-            case .some(let v) where v.hasPrefix("ane-"):
-                let q = String(v.dropFirst(4))
-                for b in aneBuckets {
-                    set.insert(vectorEstimatorFile(precisionSuffix: q, bucket: b))
-                }
-            default:
-                set.insert(vectorEstimatorFile)  // fp16 dynamic
+            if let veVariant, veVariant.hasPrefix("dyn-") {
+                set.insert(vectorEstimatorFile(precisionSuffix: String(veVariant.dropFirst(4))))
+            } else {
+                set.insert(vectorEstimatorFile)  // fp16
             }
             return set
         }

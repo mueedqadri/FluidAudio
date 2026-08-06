@@ -73,71 +73,41 @@ public enum Supertonic3Quantization: String, Sendable, Equatable, CaseIterable {
 /// Selects which VectorEstimator build the pipeline downloads and runs.
 ///
 /// VectorEstimator is the heaviest stage (run `totalSteps`× per utterance).
-/// Two independent axes — weight precision (size) and shape mode (compute
-/// device):
+/// Every build here is a RangeDim model fed the exact latent length, run
+/// `.cpuOnly`; the cases differ only in weight precision, i.e. download size:
 ///
-/// - `.fp16Dynamic` (default): the original FP16 RangeDim model. Dynamic
-///   shapes ⇒ CPU/GPU; preserves pre-existing behavior.
-/// - `.dynamic(q)`: a weight-quantized RangeDim model. Smaller download, same
-///   placement (dynamic shapes cannot use the ANE).
-/// - `.aneBucketed(q)`: fixed-length L∈{128,256,512} models that land ~94% on
-///   the Neural Engine (~2.7× faster end-to-end). The synthesizer pads each
-///   chunk's latent up to the smallest bucket ≥ its length. Per-chunk length is
-///   bounded by the text chunker, so the 128 bucket covers the common case.
-/// Measured on `Benchmarks/Supertonic3/paragraphs.txt` at a 70-character cap
-/// (macOS, M1 voice, 8 steps). Higher precision is not the safe default it
-/// looks like — the dynamic builds cannot use the ANE, so they pay ~10× in
-/// throughput and 2× in download for accuracy that is a wash:
+/// - `.dynamic(q)` — weight-quantized RangeDim model, 64 MB at int8.
+/// - `.fp16Dynamic` — the original FP16 model, 128 MB. Reach for it to check
+///   whether quantization is implicated in a defect, not to ship.
 ///
-/// | build | macro WER | realtime | weights |
-/// | --- | --- | --- | --- |
-/// | `.aneBucketed(.int8)` | 0.24% | 52.7× | 64 MB |
-/// | `.dynamic(.int8)` | 0.61% | 13.9× | 64 MB |
-/// | `.fp16Dynamic` | 0.62% | 5.1× | 128 MB |
-///
-/// The WER spread there is inside run-to-run variance (synthesis noise is
-/// unseeded); the throughput gap is not. Reach for `.fp16Dynamic` to check
-/// whether quantisation is implicated in a defect, not to ship.
-///
-/// One structural difference worth knowing: the dynamic builds declare
-/// `text_emb` as `[1, 256, ?]`, so they already accept a text axis longer
-/// than 128. Only the bucketed builds pin it.
+/// Fixed-length ANE-bucketed builds are gone. They were ~2.7× faster and it
+/// did not matter: 4-bit palettization comes apart as chunks grow (macro WER
+/// 0.88% → 7.63% between a 70- and a 110-character cap, where int8 holds
+/// 0.24% at both), the fixed shapes froze the text axis at 128 tokens, and
+/// iOS refuses those programs to a backgrounded app. The exact-latent CPU
+/// chain measures 10–37× realtime against the 1× playback needs.
 public enum Supertonic3VectorEstimator: Sendable, Equatable {
     case fp16Dynamic
     case dynamic(Supertonic3Quantization)
-    case aneBucketed(Supertonic3Quantization)
 
-    /// Default: ANE-bucketed int4 — ~94% on the ANE, ~2.7× faster end-to-end.
-    ///
-    /// 4-bit palettization is clean only for **short** chunks. Its per-step
-    /// error (~3.4% vs fp32) compounds through the 8-step denoising loop, and
-    /// past roughly 70 characters the words themselves break up: macro WER goes
-    /// 0.88% → 7.63% between a 70- and a 110-character cap, where int8 holds
-    /// 0.24% at both. Callers that raise `maxChunkLengthLatin` must move off
-    /// int4. The historical fp16 dynamic build stays available via
-    /// `--ve-variant fp16`.
-    public static let `default`: Supertonic3VectorEstimator = .aneBucketed(.int4)
+    /// Default: dynamic int8 — the precision the fp32 quality ceiling was
+    /// measured against, at half the FP16 download.
+    public static let `default`: Supertonic3VectorEstimator = .dynamic(.int8)
 
     /// `nil` for FP16; the rawValue (`"int8"`/`"int6"`/`"int4"`) otherwise.
     var precisionSuffix: String? {
         switch self {
         case .fp16Dynamic: return nil
-        case .dynamic(let q), .aneBucketed(let q): return q.rawValue
+        case .dynamic(let q): return q.rawValue
         }
     }
 
-    var isBucketed: Bool {
-        if case .aneBucketed = self { return true }
-        return false
-    }
-
     /// Variant token passed to `DownloadUtils.downloadRepo` / `getRequiredModelNames`
-    /// so only the selected VectorEstimator file(s) are fetched.
+    /// so only the selected VectorEstimator file is fetched.
     var downloadVariant: String? {
         switch self {
         case .fp16Dynamic: return nil
         case .dynamic(let q): return "dyn-\(q.rawValue)"
-        case .aneBucketed(let q): return "ane-\(q.rawValue)"
         }
     }
 }

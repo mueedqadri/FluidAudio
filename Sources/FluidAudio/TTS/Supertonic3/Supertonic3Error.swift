@@ -16,11 +16,16 @@ public enum Supertonic3Error: Error, LocalizedError, Sendable {
     case invalidTensorShape(stage: String, expected: String, got: String)
     case emptyText
 
-    /// The optional long-sentence tier cannot serve a request — assets not
-    /// installed, bundle unreadable, sentence past `tierCeiling`, or a CoreML
-    /// runtime without multi-function support. Never fatal: callers fall back
-    /// to tier-1 behavior (split at the 128-token window) and synthesize.
+    /// A chunk overruns one of the model's published windows — past
+    /// `tierCeiling` on the text axis, or past `dynamicLatentSlotCeiling` on
+    /// the latent axis (which a long sentence at a slow playback rate reaches).
+    /// Never fatal: the synthesizer re-splits at `textTFixed` and synthesizes
+    /// the pieces through the same stages, so it degrades to a seam.
     case tierUnavailable(reason: String)
+
+    /// The CoreML runtime is too old for multi-function models (macOS 15 /
+    /// iOS 18). Fatal — the text stages ship only in that form.
+    case unsupportedRuntime(reason: String)
 
     public var errorDescription: String? {
         switch self {
@@ -52,7 +57,9 @@ public enum Supertonic3Error: Error, LocalizedError, Sendable {
         case .emptyText:
             return "Supertonic3 received empty text after normalization."
         case .tierUnavailable(let reason):
-            return "Supertonic3 long-sentence tier unavailable: \(reason)"
+            return "Supertonic3 chunk exceeds a model window: \(reason)"
+        case .unsupportedRuntime(let reason):
+            return "Supertonic3 runtime unsupported: \(reason)"
         }
     }
 }

@@ -1,8 +1,8 @@
 @preconcurrency import CoreML
 import Foundation
 
-/// Actor-based store for the four Supertonic-3 CoreML models plus the two
-/// companion config files (`tts.json`, `unicode_indexer.json`).
+/// Actor-based store for the Supertonic-3 CoreML models plus the two companion
+/// config files (`tts.json`, `unicode_indexer.json`).
 ///
 /// The four stages are:
 ///   1. `text_encoder`        — text IDs + style → text embedding
@@ -10,10 +10,27 @@ import Foundation
 ///   3. `vector_estimator`    — denoising loop input (called N times)
 ///   4. `vocoder`             — final latent → 44.1 kHz waveform
 ///
-/// All four are intentionally loaded with `.cpuAndNeuralEngine` by default —
-/// the converted graphs are FP16 and small enough to fit in ANE working
-/// memory. Callers can override at init time (`.cpuOnly` is recommended for
-/// Intel Macs and for the smoke tests).
+/// **Placement is not a tuning knob here.** The text stages and the
+/// VectorEstimator are pinned `.cpuOnly` on both platforms; only the vocoder
+/// takes the caller's `computeUnits` (`.cpuAndNeuralEngine` by default). Two
+/// independent findings put them there:
+///
+/// - *Fixed shapes froze the text axis.* An ANE export has to pin every axis,
+///   which capped a sentence at 128 tokens and split 34.9% of them mid-clause.
+///   The text stages that hold a sentence whole are multi-function CPU
+///   bundles, and the VectorEstimator that takes an exact latent is a RangeDim
+///   model CoreML will not put on the ANE at all.
+/// - *iOS refuses the ANE to a backgrounded app, per program.* Field-verified
+///   on device (iPhone 13 Pro, A15): the kernel returns kIOReturnNotPermitted
+///   for the text stages' many-island BNNS↔ANE programs and for the bucketed
+///   VectorEstimator — at foreground QoS, with an ios17-retargeted
+///   bit-identical model, minutes or seconds after backgrounding alike — while
+///   single-block ANE programs (the vocoder, Kokoro's stages) keep running in
+///   the same process.
+///
+/// So CPU placement is the one configuration that cannot be refused, and it
+/// costs nothing that matters: the all-CPU chain measured 10–37× realtime on
+/// an A15 and 43× on M-series, against the 1× playback needs.
 public actor Supertonic3ModelStore {
 
     private let logger = AppLogger(category: "Supertonic3ModelStore")
@@ -23,26 +40,14 @@ public actor Supertonic3ModelStore {
     private let veOption: Supertonic3VectorEstimator
 
     private var repoDirectory: URL?
-    private var textEncoderModel: MLModel?
-    private var durationPredictorModel: MLModel?
     private var vocoderModel: MLModel?
 
-    /// Single VectorEstimator for the non-bucketed (`.fp16Dynamic` / `.dynamic`)
-    /// modes. `nil` in bucketed mode, where models are loaded lazily per bucket.
+    /// Text stages cached per text bucket — one CoreML function of one
+    /// multi-function bundle each — and the single RangeDim VectorEstimator.
+    /// All `.cpuOnly`, all loaded on first use.
+    private var textEncoders: [Int: MLModel] = [:]
+    private var durationPredictors: [Int: MLModel] = [:]
     private var vectorEstimatorModel: MLModel?
-    /// Lazily-loaded fixed-length VectorEstimators keyed by latent bucket length
-    /// (used only in `.aneBucketed` mode).
-    private var bucketModels: [Int: MLModel] = [:]
-
-    /// Tier-2 (long-sentence) stages, all `.cpuOnly`, all loaded on first use.
-    /// The wide text stages are cached per text bucket — one CoreML function of
-    /// one multi-function bundle each; the dynamic VectorEstimator is a single
-    /// model that takes the exact latent length. See
-    /// `Supertonic3Constants.wideTextBuckets` for why this tier exists and why
-    /// it is CPU-pinned.
-    private var wideTextEncoders: [Int: MLModel] = [:]
-    private var wideDurationPredictors: [Int: MLModel] = [:]
-    private var dynamicVectorEstimatorModel: MLModel?
 
     private(set) var config: Supertonic3Config = .defaults
 
@@ -56,57 +61,17 @@ public actor Supertonic3ModelStore {
         self.veOption = vectorEstimator
     }
 
-    /// Compute units the VectorEstimator stage should use. Dynamic-shape builds
-    /// cannot use the ANE (CoreML rejects data-dependent shapes), so they are
-    /// pinned to CPU/GPU; bucketed builds target the ANE.
-    ///
-    /// Tier 2 deliberately does **not** come through here even though it runs a
-    /// dynamic VectorEstimator: the `.dynamic → .cpuAndGPU` mapping below would
-    /// cost iOS background synthesis. It pins `.cpuOnly` instead — see
-    /// `loadTier2Model(repoDir:fileName:functionName:)`.
-    private var veComputeUnits: MLComputeUnits {
-        // An explicit .cpuOnly request always wins (it already excludes the ANE,
-        // so no override is needed). Otherwise dynamic shapes avoid the ANE
-        // (Core ML rejects them) and bucketed builds target it — except on
-        // iOS, where the bucketed VE is one of the programs the kernel refuses
-        // to run for a backgrounded app (see `backgroundSafeUnits`).
-        if computeUnits == .cpuOnly { return .cpuOnly }
-        switch veOption {
-        case .fp16Dynamic: return computeUnits  // preserve historical behavior
-        case .dynamic: return .cpuAndGPU
-        case .aneBucketed:
-            #if os(iOS)
-            return .cpuOnly
-            #else
-            return .cpuAndNeuralEngine
-            #endif
-        }
-    }
-
-    /// Placement for the stages iOS refuses to run on the ANE once the app is
-    /// backgrounded. Field-verified on device (iPhone 13 Pro, A15): the kernel
-    /// returns kIOReturnNotPermitted for the text stages' many-island
-    /// BNNS↔ANE programs and for the bucketed VectorEstimator — at foreground
-    /// QoS, with an ios17-retargeted bit-identical model, minutes or seconds
-    /// after backgrounding alike — while single-block ANE programs (both
-    /// vocoders, Kokoro's stages) keep running in the same process. CPU
-    /// placement is the one configuration that cannot be refused, and the
-    /// all-CPU chain measured 10–18× realtime on the same phone. macOS has no
-    /// background ANE restriction, so it keeps the requested units.
-    private var backgroundSafeUnits: MLComputeUnits {
-        #if os(iOS)
-        return computeUnits == .cpuAndNeuralEngine ? .cpuOnly : computeUnits
-        #else
-        return computeUnits
-        #endif
-    }
-
     // MARK: - Public API
 
-    /// Download (if missing) the four `.mlmodelc` bundles + `tts.json` +
-    /// `unicode_indexer.json` and load the CoreML stages.
+    /// Download (if missing) the CoreML bundles + `tts.json` +
+    /// `unicode_indexer.json`, then load the vocoder.
+    ///
+    /// Only the vocoder loads eagerly: it is shared by every chunk and is the
+    /// one stage whose placement depends on the caller. The text stages are
+    /// per-bucket and the VectorEstimator is 64 MB, so both wait for a chunk
+    /// that actually needs them.
     public func loadIfNeeded() async throws {
-        if textEncoderModel != nil { return }
+        if vocoderModel != nil { return }
 
         let repoDir = try await Supertonic3ResourceDownloader.ensureModels(
             directory: directory, veVariant: veOption.downloadVariant)
@@ -130,171 +95,75 @@ public actor Supertonic3ModelStore {
 
         let cfg = MLModelConfiguration()
         cfg.computeUnits = computeUnits
-
-        // The two text stages take background-safe placement — the same
-        // treatment Kokoro's PostAlbert gets, for the reasons documented on
-        // `backgroundSafeUnits`. Each runs once per chunk, so the cost is
-        // small; the vocoder stays on the ANE everywhere (its single-block
-        // program is background-permitted), and the VectorEstimator's
-        // placement is decided in `veComputeUnits`.
-        let textStageCfg = MLModelConfiguration()
-        textStageCfg.computeUnits = backgroundSafeUnits
-        textEncoderModel = try loadModel(
-            repoDir: repoDir,
-            fileName: ModelNames.Supertonic3.textEncoderFile, config: textStageCfg)
-        durationPredictorModel = try loadModel(
-            repoDir: repoDir,
-            fileName: ModelNames.Supertonic3.durationPredictorFile, config: textStageCfg)
         vocoderModel = try loadModel(
             repoDir: repoDir,
             fileName: ModelNames.Supertonic3.vocoderFile, config: cfg)
 
-        // VectorEstimator: dynamic builds load eagerly; bucketed builds load
-        // each fixed-length model lazily on first use (see vectorEstimator(forLatentLength:)).
-        if !veOption.isBucketed {
-            let veCfg = MLModelConfiguration()
-            veCfg.computeUnits = veComputeUnits
-            vectorEstimatorModel = try loadModel(
-                repoDir: repoDir,
-                fileName: ModelNames.Supertonic3.vectorEstimatorFile(
-                    precisionSuffix: veOption.precisionSuffix, bucket: nil),
-                config: veCfg)
-        }
-
         let elapsed = Date().timeIntervalSince(loadStart)
         logger.info(
-            "Supertonic-3 models loaded in \(String(format: "%.2f", elapsed))s")
+            "Supertonic-3 vocoder loaded in \(String(format: "%.2f", elapsed))s")
     }
 
     // MARK: - Accessors
 
-    public func textEncoder() throws -> MLModel { try unwrap(textEncoderModel, name: "text_encoder") }
-    public func durationPredictor() throws -> MLModel {
-        try unwrap(durationPredictorModel, name: "duration_predictor")
+    public func vocoder() throws -> MLModel {
+        guard let vocoderModel else { throw Supertonic3Error.notInitialized }
+        return vocoderModel
     }
-    /// Resolve the VectorEstimator for a chunk of `latentLength` TTL slots.
-    ///
-    /// Returns the model plus the latent length the caller must feed it: in
-    /// dynamic modes that equals `latentLength` (no padding); in bucketed mode
-    /// it is the smallest published bucket ≥ `latentLength`, and the caller pads
-    /// the latent/mask up to that length. Bucket models are loaded lazily and
-    /// cached.
-    public func vectorEstimator(forLatentLength latentLength: Int) throws -> (model: MLModel, paddedLength: Int) {
-        guard veOption.isBucketed else {
-            return (try unwrap(vectorEstimatorModel, name: "vector_estimator"), latentLength)
-        }
-        guard let bucket = ModelNames.Supertonic3.aneBuckets.first(where: { $0 >= latentLength })
-        else {
-            throw Supertonic3Error.inferenceFailed(
-                stage: "vector_estimator",
-                underlying:
-                    "latent length \(latentLength) exceeds largest ANE bucket "
-                    + "\(ModelNames.Supertonic3.aneBuckets.last ?? 0); use a dynamic VectorEstimator")
-        }
-        if let cached = bucketModels[bucket] { return (cached, bucket) }
 
-        guard let repoDir = repoDirectory else { throw Supertonic3Error.notInitialized }
-        let veCfg = MLModelConfiguration()
-        veCfg.computeUnits = veComputeUnits
-        let model = try loadModel(
-            repoDir: repoDir,
-            fileName: ModelNames.Supertonic3.vectorEstimatorFile(
-                precisionSuffix: veOption.precisionSuffix, bucket: bucket),
-            config: veCfg)
-        bucketModels[bucket] = model
-        return (model, bucket)
-    }
-    public func vocoder() throws -> MLModel { try unwrap(vocoderModel, name: "vocoder") }
-
-    // MARK: - Tier 2 (long sentences, CPU-pinned)
-
-    /// The wide text stages that hold `tokenLength` tokens whole, loaded on
-    /// first use, plus the text length the caller must pad `text_ids` and
-    /// `text_mask` to.
+    /// The text stages that hold `tokenLength` tokens whole, loaded on first
+    /// use, plus the text length the caller must pad `text_ids` and `text_mask`
+    /// to.
     ///
-    /// Throws `.tierUnavailable` — never a hard failure — whenever the tier
-    /// cannot serve the request: assets not installed, bundle unreadable,
-    /// `tokenLength` past `Supertonic3Constants.tierCeiling`, or a CoreML
-    /// runtime older than macOS 15 / iOS 18. One `catch` at the call site
-    /// therefore covers every reason to fall back to tier-1 chunking.
-    ///
-    /// The vocoder and the voice styles are shared with tier 1 — only the two
-    /// text stages and the VectorEstimator differ.
-    public func wideTextStages(
+    /// Throws `.tierUnavailable` when `tokenLength` is past
+    /// `Supertonic3Constants.tierCeiling` — the chunker splits before that, so
+    /// it is the caller's cue to re-split rather than a failure.
+    public func textStages(
         forTokenLength tokenLength: Int
     ) throws -> (textEncoder: MLModel, durationPredictor: MLModel, paddedT: Int) {
         guard let bucket = Supertonic3Constants.wideTextBucket(forTokenLength: tokenLength) else {
             throw Supertonic3Error.tierUnavailable(
-                reason: "\(tokenLength) tokens exceeds the tier ceiling of "
+                reason: "\(tokenLength) tokens exceeds the ceiling of "
                     + "\(Supertonic3Constants.tierCeiling); clause-split first")
         }
-        if let encoder = wideTextEncoders[bucket], let predictor = wideDurationPredictors[bucket] {
+        if let encoder = textEncoders[bucket], let predictor = durationPredictors[bucket] {
             return (encoder, predictor, bucket)
         }
         guard let repoDir = repoDirectory else { throw Supertonic3Error.notInitialized }
 
-        let encoder = try Self.loadTier2Model(
+        let encoder = try Self.loadCPUStage(
             repoDir: repoDir,
             fileName: ModelNames.Supertonic3.textEncoderWideFile,
             functionName: ModelNames.Supertonic3.textEncoderFunction(bucket: bucket))
-        let predictor = try Self.loadTier2Model(
+        let predictor = try Self.loadCPUStage(
             repoDir: repoDir,
             fileName: ModelNames.Supertonic3.durationPredictorWideFile,
             functionName: ModelNames.Supertonic3.durationPredictorFunction(bucket: bucket))
 
-        wideTextEncoders[bucket] = encoder
-        wideDurationPredictors[bucket] = predictor
-        logger.info("Loaded wide text stages at T\(bucket) (.cpuOnly)")
+        textEncoders[bucket] = encoder
+        durationPredictors[bucket] = predictor
+        logger.info("Loaded text stages at T\(bucket) (.cpuOnly)")
         return (encoder, predictor, bucket)
     }
 
-    /// The dynamic int8 VectorEstimator, `.cpuOnly`, loaded on first use.
+    /// The RangeDim VectorEstimator, `.cpuOnly`, loaded on first use.
     ///
-    /// int8 is not a tuning choice: the palettization ladder comes apart as
-    /// chunks grow — int4 breaks at a 110-character cap, 6-bit at 300 — while
-    /// int8 stays clean at every cap measured. Tier 2 exists to make chunks
-    /// longer, so it takes the one precision that survives them.
-    ///
-    /// Same `.tierUnavailable` contract as `wideTextStages(forTokenLength:)`.
-    public func dynamicVectorEstimator() throws -> MLModel {
-        if let cached = dynamicVectorEstimatorModel { return cached }
+    /// Precision follows the caller's `Supertonic3VectorEstimator`; int8 is the
+    /// default and not a tuning choice, because the palettization ladder comes
+    /// apart as chunks grow — int4 breaks at a 110-character cap, 6-bit at 300
+    /// — while int8 stays clean at every cap measured.
+    public func vectorEstimator() throws -> MLModel {
+        if let cached = vectorEstimatorModel { return cached }
         guard let repoDir = repoDirectory else { throw Supertonic3Error.notInitialized }
 
-        let model = try Self.loadTier2Model(
+        let model = try Self.loadCPUStage(
             repoDir: repoDir,
             fileName: ModelNames.Supertonic3.vectorEstimatorFile(
-                precisionSuffix: Supertonic3Quantization.int8.rawValue, bucket: nil),
+                precisionSuffix: veOption.precisionSuffix),
             functionName: nil)
-        dynamicVectorEstimatorModel = model
-        logger.info("Loaded dynamic int8 VectorEstimator (.cpuOnly)")
+        vectorEstimatorModel = model
+        logger.info("Loaded VectorEstimator (.cpuOnly)")
         return model
-    }
-
-    /// Whether both wide text stages are installed under `repoDir`. A cheap
-    /// filesystem check, so a caller can learn the tier is absent without
-    /// paying a CoreML load to find out.
-    public static func hasWideTextStages(in repoDir: URL) -> Bool {
-        ModelNames.Supertonic3.wideTextStageFiles.allSatisfy { file in
-            FileManager.default.fileExists(atPath: repoDir.appendingPathComponent(file).path)
-        }
-    }
-
-    /// Whether tier 2 can serve this session at all: both wide text stages
-    /// **and** the dynamic VectorEstimator installed, on a runtime new enough
-    /// for multi-function models.
-    ///
-    /// Asked once before chunking, so an installation without the tier chunks
-    /// exactly as it did before rather than producing long chunks nothing can
-    /// synthesize. The per-chunk `.tierUnavailable` path remains the net for a
-    /// bundle that is present but unloadable.
-    public func isWideTierAvailable() -> Bool {
-        guard #available(macOS 15.0, iOS 18.0, *) else { return false }
-        guard let repoDir = repoDirectory else { return false }
-        let dynamicVE = ModelNames.Supertonic3.vectorEstimatorFile(
-            precisionSuffix: Supertonic3Quantization.int8.rawValue, bucket: nil)
-        return Self.hasWideTextStages(in: repoDir)
-            && FileManager.default.fileExists(
-                atPath: repoDir.appendingPathComponent(dynamicVE).path)
     }
 
     public func repoDir() throws -> URL {
@@ -308,48 +177,31 @@ public actor Supertonic3ModelStore {
     }
 
     public func unload() {
-        textEncoderModel = nil
-        durationPredictorModel = nil
-        vectorEstimatorModel = nil
-        bucketModels.removeAll()
         vocoderModel = nil
-        wideTextEncoders.removeAll()
-        wideDurationPredictors.removeAll()
-        dynamicVectorEstimatorModel = nil
+        textEncoders.removeAll()
+        durationPredictors.removeAll()
+        vectorEstimatorModel = nil
     }
 
     // MARK: - Helpers
 
-    private func unwrap(_ model: MLModel?, name: String) throws -> MLModel {
-        guard let model else { throw Supertonic3Error.notInitialized }
-        return model
-    }
-
-    /// Load one optional tier-2 bundle from `repoDir`, pinned `.cpuOnly`.
+    /// Load one CPU-pinned bundle from `repoDir`.
     ///
-    /// Every failure becomes `.tierUnavailable`, including a bundle that is
-    /// present but unreadable: an optional tier that degrades to tier-1
-    /// behavior is correct, and one that fails synthesis outright is not, so
-    /// "installed but broken" is treated the same as "not installed".
-    ///
-    /// `static` and repo-directory-parameterized so the absence path is
-    /// testable without a populated cache.
-    static func loadTier2Model(
+    /// `static` and repo-directory-parameterized so failures are testable
+    /// without a populated cache.
+    static func loadCPUStage(
         repoDir: URL, fileName: String, functionName: String?
     ) throws -> MLModel {
         let cfg = MLModelConfiguration()
-        // Explicitly .cpuOnly on both platforms, and deliberately not through
-        // `veComputeUnits`: its `.dynamic → .cpuAndGPU` mapping would silently
-        // cost iOS background synthesis.
         cfg.computeUnits = .cpuOnly
 
         if let functionName {
-            // The wide stages are multi-function bundles, which need the
+            // The text stages are multi-function bundles, which need the
             // macOS 15 / iOS 18 CoreML runtime. The package still targets
             // macOS 14, so this is a runtime gate; MacReader's own deployment
             // targets are 26 and never see it.
             guard #available(macOS 15.0, iOS 18.0, *) else {
-                throw Supertonic3Error.tierUnavailable(
+                throw Supertonic3Error.unsupportedRuntime(
                     reason: "multi-function CoreML models require macOS 15+/iOS 18+")
             }
             cfg.functionName = functionName
@@ -357,7 +209,7 @@ public actor Supertonic3ModelStore {
 
         let modelURL = repoDir.appendingPathComponent(fileName)
         guard FileManager.default.fileExists(atPath: modelURL.path) else {
-            throw Supertonic3Error.tierUnavailable(reason: "\(fileName) is not installed")
+            throw Supertonic3Error.modelFileNotFound(fileName)
         }
         do {
             let model = try MLModel(contentsOf: modelURL, configuration: cfg)
@@ -367,8 +219,8 @@ public actor Supertonic3ModelStore {
             return model
         } catch {
             let function = functionName.map { " [\($0)]" } ?? ""
-            throw Supertonic3Error.tierUnavailable(
-                reason: "\(fileName)\(function) failed to load: \(error)")
+            throw Supertonic3Error.corruptedModel(
+                fileName + function, underlying: "\(error)")
         }
     }
 

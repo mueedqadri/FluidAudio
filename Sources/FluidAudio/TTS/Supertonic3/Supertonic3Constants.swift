@@ -52,57 +52,56 @@ public enum Supertonic3Constants {
     /// Text-encoder output channel count fed into `vector_estimator.text_emb`.
     public static let textEmbDim: Int = 256
 
-    /// Pinned text-token sequence length expected by `text_encoder` and
-    /// `duration_predictor`. The CoreML conversion fixes the T axis at 128;
-    /// the unicode processor pads/truncates inputs to match. Mirrors
-    /// `TEXT_T_FIXED = 128` in the reference Python driver.
+    /// Packing cap, in encoded tokens, for a chunk that holds more than one
+    /// sentence — and the width the synthesizer re-splits at when a chunk
+    /// overruns `dynamicLatentSlotCeiling`.
+    ///
+    /// Not a routing boundary: every chunk takes the same path regardless of
+    /// length. 128 is kept because it is the granularity narration wants —
+    /// highlighting, cache keys and seek all key off a chunk — not because any
+    /// model requires it. (It was `TEXT_T_FIXED = 128` in the reference Python
+    /// driver, whose text axis really was frozen there.)
     public static let textTFixed: Int = 128
 
-    /// Text-axis lengths published for the long-sentence tier.
+    /// Text-axis lengths published by `TextEncoderWide` / `DurationPredictorWide`
+    /// — one multi-function bundle per stage, one CoreML function per bucket.
+    /// A chunk is padded up to the smallest bucket that holds it, and the mask
+    /// tells the stage where the text actually ends.
     ///
-    /// `textTFixed` is frozen into the ANE export, and **34.9%** of sentences
-    /// do not fit it (measured over all 2,601 sentences of Gatsby). Every one
-    /// of those is split mid-sentence, and a split is heard as an invented
-    /// sentence ending — the chunker can choose where the seam lands but not
-    /// whether there is one. The wide stages carry the same weights on a longer
-    /// text axis, as one multi-function bundle per stage, so a long sentence is
-    /// synthesized whole instead.
+    /// These bundles are the *only* text stages the pipeline loads. The narrow
+    /// T128 export they replaced was frozen at 128 tokens, and **34.9%** of
+    /// sentences do not fit that (measured over all 2,601 sentences of Gatsby);
+    /// every one of those was split mid-sentence, which is heard as an invented
+    /// sentence ending. Split rate by window on the same corpus: 128 → 34.9%,
+    /// 192 → 12.3%, 256 → 4.0%, 320 → ~1%.
     ///
-    /// Two tiers, selected per chunk by
-    /// `Supertonic3TextChunker.encodedLength(of:lang:)`:
+    /// Everything here runs `.cpuOnly` on both platforms. The ANE is not an
+    /// option and not a loss: its fixed shapes are what froze the text axis in
+    /// the first place, iOS refuses these programs outright once the app is
+    /// backgrounded (see `Supertonic3ModelStore`), and the all-CPU chain still
+    /// measures 10–37× realtime on an A15 against the 1× playback needs. The
+    /// vocoder alone stays on the ANE — its single-block program is the one
+    /// iOS keeps granting in the background.
     ///
-    /// | tokens | text stages | VectorEstimator | placement |
-    /// | --- | --- | --- | --- |
-    /// | ≤ 128 | T128 | ANE-bucketed, padded latent | `.cpuAndNeuralEngine` |
-    /// | 129…320 | smallest wide bucket ≥ n | dynamic, exact latent | `.cpuOnly` |
-    ///
-    /// The wide tier is `.cpuOnly` on both platforms, deliberately: the dynamic
-    /// VectorEstimator's data-dependent shapes bar it from the ANE, and the
-    /// remaining option — `.cpuAndGPU` — would cost iOS background synthesis,
-    /// which CoreML denies to GPU work. One placement everywhere means
-    /// background playback is safe by construction rather than by policy.
-    ///
-    /// Split rate by window on the same corpus: 128 → 34.9%, 192 → 12.3%,
-    /// 256 → 4.0%, 320 → ~1%.
-    public static let wideTextBuckets: [Int] = [192, 256, 320]
+    /// `text_t16` is published but deliberately **not** listed: the
+    /// VectorEstimator's `text_emb` / `text_mask` axes are RangeDims starting
+    /// at `dynamicAxisFloor`, so a 16-wide embedding fails the bind. 32 is the
+    /// smallest bucket the chain as a whole can run.
+    public static let wideTextBuckets: [Int] = [32, 64, 128, 192, 256, 320]
 
-    /// Largest sentence, in encoded tokens, the wide tier holds whole (the
+    /// Largest sentence, in encoded tokens, that is synthesized whole (the
     /// largest published bucket). The 99th percentile sentence is ≈334 tokens,
     /// so roughly 1% of sentences still clause-split — into pieces that each
     /// fit, rather than into whatever the budget allowed.
     public static let tierCeiling: Int = 320
 
-    /// Smallest published wide bucket that holds `tokenLength`, or `nil` when
-    /// no bucket does (i.e. past `tierCeiling`).
-    ///
-    /// Answers only the sizing question, not the routing one: a length that
-    /// tier 1 would serve still reports the smallest wide bucket. Callers route
-    /// on `tokenLength > textTFixed` first.
+    /// Smallest published bucket that holds `tokenLength`, or `nil` when no
+    /// bucket does (i.e. past `tierCeiling`, which the chunker splits before).
     public static func wideTextBucket(forTokenLength tokenLength: Int) -> Int? {
         wideTextBuckets.first { $0 >= tokenLength }
     }
 
-    /// Upper bound, in latent slots, of the dynamic-shape stages tier 2 runs.
+    /// Upper bound, in latent slots, of the dynamic-shape stages.
     /// The published RangeDims are `[17, 512]` on the dynamic VectorEstimator's
     /// latent axes and `[4, 512]` on the vocoder's. One slot is
     /// `ae.base_chunk_size × ttl.chunk_compress_factor` samples — 512 × 6 =
@@ -111,11 +110,30 @@ public enum Supertonic3Constants {
     /// Reachable, because duration is divided by the speed parameter: a
     /// sentence near `tierCeiling` runs ≈19.5 s at 1× and crosses the window
     /// below ≈0.55×, well inside the 0.5× a playback UI offers. The
-    /// synthesizer guards the tier-2 plan against this bound and throws
-    /// `.tierUnavailable`, which re-splits the sentence at the 128-token
-    /// window — degrading to a seam instead of failing the prediction with an
-    /// opaque CoreML shape error.
+    /// synthesizer guards against this bound and throws `.tierUnavailable`,
+    /// which re-splits the sentence at `textTFixed` and synthesizes the pieces
+    /// through the same path — degrading to a seam instead of failing the
+    /// prediction with an opaque CoreML shape error.
     public static let dynamicLatentSlotCeiling: Int = 512
+
+    /// Lower bound of **every** RangeDim axis on the dynamic VectorEstimator —
+    /// the `17` of its published `[17, 512]`, on the latent axis
+    /// (`noisy_latent`, `latent_mask`) and the text axis (`text_emb`,
+    /// `text_mask`) alike. ≈1.18 s of audio on the latent side.
+    ///
+    /// Both ends are reachable and both were measured, because bucket padding
+    /// used to hide them:
+    ///
+    /// - *Text axis.* `text_t16` exists in the bundles but produces a 16-wide
+    ///   embedding the VectorEstimator refuses, which is why
+    ///   `wideTextBuckets` starts at 32.
+    /// - *Latent axis.* `"Yes."` predicts 16 slots. CoreML rejects the bind
+    ///   ("Size (16) of dimension (2) is not in allowed range (17..512)"), so
+    ///   the synthesizer pads the latent and its mask up to this floor and
+    ///   trims back before the vocoder, whose own floor is 4. The pad is
+    ///   masked out, and it is a fraction of the ≥128-slot bucket padding
+    ///   every short chunk used to carry.
+    public static let dynamicAxisFloor: Int = 17
 
     // MARK: - Inference
 

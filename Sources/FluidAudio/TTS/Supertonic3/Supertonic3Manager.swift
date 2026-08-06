@@ -5,14 +5,15 @@ import Foundation
 ///
 /// `Supertonic3Manager` orchestrates the four pieces of the on-device
 /// pipeline:
-///   1. `Supertonic3ModelStore`        — downloads + holds the four
-///      `.mlmodelc` bundles (text_encoder, duration_predictor,
-///      vector_estimator, vocoder) plus the companion `tts.json` and
-///      `unicode_indexer.json`.
+///   1. `Supertonic3ModelStore`        — downloads + holds the CoreML bundles
+///      (the two multi-function text stages, the VectorEstimator, the vocoder)
+///      plus the companion `tts.json` and `unicode_indexer.json`. Only the
+///      vocoder loads eagerly; the rest load per text bucket on first use.
 ///   2. `Supertonic3UnicodeProcessor`  — NFKD text normalization, language
 ///      tagging, Unicode → indexer ID lookup.
-///   3. `Supertonic3TextChunker`       — paragraph / sentence / comma /
-///      word chunker used for long-utterance synthesis.
+///   3. `Supertonic3TextChunker`       — packs text into chunks by *encoded*
+///      token count, keeping a sentence whole up to `tierCeiling` and seaming
+///      at clause boundaries beyond it.
 ///   4. `Supertonic3Synthesizer`       — drives the 4-stage CoreML graph
 ///      (text_encoder + duration_predictor → denoising loop → vocoder) and
 ///      returns 44.1 kHz mono Float32 audio.
@@ -45,9 +46,10 @@ public actor Supertonic3Manager {
     private var synthesizer: Supertonic3Synthesizer?
 
     /// - Parameters:
-    ///   - vectorEstimator: which VectorEstimator build to download/run. Default
-    ///     `.fp16Dynamic` preserves prior behavior; `.aneBucketed(.int4)` etc.
-    ///     opt into the smaller, ANE-resident fixed-length builds.
+    ///   - computeUnits: placement for the **vocoder** only — the sole stage
+    ///     that reaches the ANE. The text stages and the VectorEstimator are
+    ///     `.cpuOnly` by construction; see `Supertonic3ModelStore`.
+    ///   - vectorEstimator: which VectorEstimator build to download/run.
     public init(
         directory: URL? = nil,
         computeUnits: MLComputeUnits = .cpuAndNeuralEngine,

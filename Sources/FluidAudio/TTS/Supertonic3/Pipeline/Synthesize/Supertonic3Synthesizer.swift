@@ -14,6 +14,11 @@ import Foundation
 ///      and feed `denoised_latent` back as `noisy_latent` for the next step.
 ///   5. `vocoder(latent) → wav` (44.1 kHz Float32 PCM).
 ///
+/// One path per chunk, whatever its length: the text stages are padded up to
+/// the smallest published bucket that holds it, and the VectorEstimator takes
+/// the exact latent length. Everything but the vocoder runs `.cpuOnly` — see
+/// `Supertonic3ModelStore` for why.
+///
 /// Input / output tensor names match the upstream ONNX graph; the conversion
 /// script (`Scripts/convert_supertonic3_to_coreml.py`) preserves them.
 struct Supertonic3Synthesizer {
@@ -39,16 +44,11 @@ struct Supertonic3Synthesizer {
         speed: Float,
         silenceDuration: Float
     ) async throws -> (samples: [Float], duration: Float) {
-        // The chunker sizes itself against the models' token window directly,
-        // so there is no per-language cap to pick here. How long a single
-        // sentence may run does depend on what is installed: without the wide
-        // stages the ceiling collapses onto the packing cap and chunking is
-        // exactly what it was before the tier existed.
-        let wideTierAvailable = await store.isWideTierAvailable()
+        // The chunker sizes itself against the models' token windows directly,
+        // so there is no per-language cap to pick here.
         let chunks = Supertonic3TextChunker.chunk(
             text: text, lang: language,
-            wholeSentenceTokens: wideTierAvailable
-                ? Supertonic3Constants.tierCeiling : Supertonic3Constants.textTFixed)
+            wholeSentenceTokens: Supertonic3Constants.tierCeiling)
         guard !chunks.isEmpty else { throw Supertonic3Error.emptyText }
 
         let sampleRate = await store.config.ae.sampleRate
@@ -60,9 +60,9 @@ struct Supertonic3Synthesizer {
         var isFirst = true
 
         for chunk in chunks {
-            // One piece per chunk normally; more only when a chunk sized for
-            // tier 2 has to be re-split because the tier turned out to be
-            // unloadable. Either way the seam treatment is identical.
+            // One piece per chunk normally; more only when a chunk overruns a
+            // model window and has to be re-split. Either way the seam
+            // treatment is identical.
             for (pieceSamples, pieceDuration) in try await inferChunk(
                 text: chunk, language: language, style: style,
                 totalSteps: totalSteps, speed: speed)
@@ -82,70 +82,43 @@ struct Supertonic3Synthesizer {
         return (samples, durationCat)
     }
 
-    // MARK: - Tier routing
+    // MARK: - Per-chunk dispatch
 
-    /// Which VectorEstimator a chunk runs on, and how its latent is sized.
-    private enum VectorEstimatorPlan {
-        /// Tier 1: the store picks a fixed-length ANE bucket and the latent is
-        /// padded up to it.
-        case bucketed
-        /// Tier 2: one dynamic-shape model, fed the exact latent length. This
-        /// is the mode the quality ceiling was measured in.
-        case dynamic(MLModel)
-    }
-
-    /// Synthesize one chunk, on the tier its encoded length calls for.
+    /// Synthesize one chunk on the text bucket its encoded length calls for.
     ///
-    /// Returns a list because the tier-2 attempt can fail on an installed but
-    /// unloadable bundle; the recovery is to re-split the chunk at the tier-1
-    /// window and synthesize the pieces, which sounds like it did before the
-    /// tier existed rather than failing playback.
+    /// Returns a list because a chunk can overrun the latent window — a long
+    /// sentence at a slow playback rate predicts past 512 slots. The recovery
+    /// is to re-split at `textTFixed` and synthesize the pieces through the
+    /// same stages, which is heard as a seam rather than as failed playback.
     private func inferChunk(
         text: String, language: String,
         style: Supertonic3VoiceStyle,
         totalSteps: Int, speed: Float
     ) async throws -> [(samples: [Float], duration: Float)] {
         let tokens = Supertonic3TextChunker.encodedLength(of: text, lang: language)
-        guard tokens > Supertonic3Constants.textTFixed else {
-            return [
-                try await infer(
-                    text: text, language: language, style: style,
-                    totalSteps: totalSteps, speed: speed,
-                    maxLen: Supertonic3Constants.textTFixed,
-                    textEncoder: await store.textEncoder(),
-                    durationPredictor: await store.durationPredictor(),
-                    vectorEstimatorPlan: .bucketed)
-            ]
-        }
-
         do {
-            let stages = try await store.wideTextStages(forTokenLength: tokens)
             return [
                 try await infer(
                     text: text, language: language, style: style,
-                    totalSteps: totalSteps, speed: speed,
-                    maxLen: stages.paddedT,
-                    textEncoder: stages.textEncoder,
-                    durationPredictor: stages.durationPredictor,
-                    vectorEstimatorPlan: .dynamic(try await store.dynamicVectorEstimator()))
+                    totalSteps: totalSteps, speed: speed, tokenLength: tokens)
             ]
         } catch Supertonic3Error.tierUnavailable(let reason) {
             logger.warning(
-                "Long-sentence tier unavailable for a \(tokens)-token chunk "
-                    + "(\(reason)); splitting at \(Supertonic3Constants.textTFixed)")
+                "A \(tokens)-token chunk exceeds a model window (\(reason)); "
+                    + "splitting at \(Supertonic3Constants.textTFixed)")
             var pieces: [(samples: [Float], duration: Float)] = []
             for piece in Supertonic3TextChunker.chunk(
                 text: text, lang: language,
                 wholeSentenceTokens: Supertonic3Constants.textTFixed)
             {
+                // Deliberately not recursive: a piece that still overruns has
+                // nowhere left to go, and the error is the honest answer.
                 pieces.append(
                     try await infer(
                         text: piece, language: language, style: style,
                         totalSteps: totalSteps, speed: speed,
-                        maxLen: Supertonic3Constants.textTFixed,
-                        textEncoder: await store.textEncoder(),
-                        durationPredictor: await store.durationPredictor(),
-                        vectorEstimatorPlan: .bucketed))
+                        tokenLength: Supertonic3TextChunker.encodedLength(
+                            of: piece, lang: language)))
             }
             return pieces
         }
@@ -153,30 +126,20 @@ struct Supertonic3Synthesizer {
 
     // MARK: - Single-chunk inference (batch size 1)
 
-    /// Run the four stages for one chunk against already-resolved models.
-    ///
-    /// The stages arrive as parameters rather than being fetched here so that
-    /// both tiers share this body verbatim: they differ only in which two text
-    /// stages run, what the text axis is padded to, and whether the latent is
-    /// bucket-padded or exact.
+    /// Run the four stages for one chunk of `tokenLength` encoded tokens.
     private func infer(
         text: String, language: String,
         style: Supertonic3VoiceStyle,
         totalSteps: Int, speed: Float,
-        maxLen: Int,
-        textEncoder: MLModel,
-        durationPredictor: MLModel,
-        vectorEstimatorPlan: VectorEstimatorPlan
+        tokenLength: Int
     ) async throws -> (samples: [Float], duration: Float) {
+        let stages = try await store.textStages(forTokenLength: tokenLength)
+        let (textEncoder, durationPredictor, maxLen) = stages
         let (idsBatch, maskBatch) = try processor.encode(
             texts: [text], languages: [language], maxLen: maxLen)
         guard let ids = idsBatch.first, let mask = maskBatch.first else {
             throw Supertonic3Error.emptyText
         }
-        // Errors and QoS lines must say which tier's model failed — the wide
-        // stages are distinct CPU-pinned programs, and a stage name alone has
-        // been ambiguous in field logs.
-        let tierTag = maxLen == Supertonic3Constants.textTFixed ? "" : "-wide"
         let textLen = ids.count
 
         let ids32 = ids.map { Int32(clamping: $0) }
@@ -190,7 +153,7 @@ struct Supertonic3Synthesizer {
 
         // --- Stage 1: duration_predictor --- //
         let dpOut = try await predict(
-            stage: "duration_predictor\(tierTag)",
+            stage: "duration_predictor",
             model: durationPredictor,
             inputs: [
                 "text_ids": MLFeatureValue(multiArray: textIds),
@@ -208,7 +171,7 @@ struct Supertonic3Synthesizer {
 
         // --- Stage 2: text_encoder --- //
         let textEncOut = try await predict(
-            stage: "text_encoder\(tierTag)",
+            stage: "text_encoder",
             model: textEncoder,
             inputs: [
                 "text_ids": MLFeatureValue(multiArray: textIds),
@@ -234,50 +197,42 @@ struct Supertonic3Synthesizer {
         let channels = latentDims.channels
         let latentShape = [latentDims.bsz, channels, trueLen]
 
-        // Resolve the VectorEstimator for this chunk. In bucketed (ANE) mode the
-        // store returns a fixed-length model and the bucket length to pad up to;
-        // in dynamic mode `padLen == trueLen` and no padding happens.
-        let (vectorEstimator, padLen): (MLModel, Int)
-        switch vectorEstimatorPlan {
-        case .bucketed:
-            (vectorEstimator, padLen) = try await store.vectorEstimator(forLatentLength: trueLen)
-        case .dynamic(let model):
-            // "Dynamic" is not unbounded: the VectorEstimator and the vocoder
-            // both publish a 512-slot latent ceiling, and a near-`tierCeiling`
-            // sentence at a slow speed predicts a duration past it. Fail as
-            // the tier being unavailable for this chunk — the caller re-splits
-            // at the 128-token window and the pieces fit — rather than letting
-            // CoreML reject the bind, which nothing upstream can recover from.
-            guard trueLen <= Supertonic3Constants.dynamicLatentSlotCeiling else {
-                throw Supertonic3Error.tierUnavailable(
-                    reason: "a \(trueLen)-slot latent exceeds the "
-                        + "\(Supertonic3Constants.dynamicLatentSlotCeiling)-slot window the "
-                        + "dynamic VectorEstimator and vocoder publish (≈35.7 s of audio)")
-            }
-            (vectorEstimator, padLen) = (model, trueLen)
+        // RangeDim is not unbounded: the VectorEstimator and the vocoder both
+        // publish a 512-slot latent ceiling, and a near-`tierCeiling` sentence
+        // at a slow speed predicts a duration past it. Report the window
+        // overrun — the caller re-splits at the 128-token window and the pieces
+        // fit — rather than letting CoreML reject the bind, which nothing
+        // upstream can recover from.
+        guard trueLen <= Supertonic3Constants.dynamicLatentSlotCeiling else {
+            throw Supertonic3Error.tierUnavailable(
+                reason: "a \(trueLen)-slot latent exceeds the "
+                    + "\(Supertonic3Constants.dynamicLatentSlotCeiling)-slot window the "
+                    + "VectorEstimator and vocoder publish (≈35.7 s of audio)")
         }
+        let vectorEstimator = try await store.vectorEstimator()
 
-        let veLatentShape = [latentDims.bsz, channels, padLen]
-        let veMaskShape = [latentDims.bsz, 1, padLen]
+        // The same axis has a floor, 17 slots, and short utterances fall under
+        // it — "Yes." predicts 16. Pad up to it (the mask keeps the tail out of
+        // the computation) and trim back before the vocoder, whose floor is 4.
+        let veLen = max(trueLen, Supertonic3Constants.dynamicAxisFloor)
+        let veLatentShape = [latentDims.bsz, channels, veLen]
 
         let noisyFlat =
-            padLen == trueLen
+            veLen == trueLen
             ? initialLatent
-            : Self.padRows(initialLatent, channels: channels, fromLen: trueLen, toLen: padLen)
+            : Self.padRows(initialLatent, channels: channels, fromLen: trueLen, toLen: veLen)
         let veMaskFlat =
-            padLen == trueLen
-            ? latentMaskFlat
-            : Self.padTail(latentMaskFlat, toLen: padLen)
+            veLen == trueLen ? latentMaskFlat : Self.padTail(latentMaskFlat, toLen: veLen)
 
         var noisyLatent = try makeFloat(values: noisyFlat, shape: veLatentShape)
-        let latentMask = try makeFloat(values: veMaskFlat, shape: veMaskShape)
+        let latentMask = try makeFloat(values: veMaskFlat, shape: [latentDims.bsz, 1, veLen])
 
         for step in 0..<totalSteps {
             let currentStep = try makeFloat(values: [Float(step)], shape: [1])
             let totalStep = try makeFloat(values: [Float(totalSteps)], shape: [1])
 
             let denoisedOut = try await predict(
-                stage: "vector_estimator\(tierTag)",
+                stage: "vector_estimator",
                 model: vectorEstimator,
                 inputs: [
                     "noisy_latent": MLFeatureValue(multiArray: noisyLatent),
@@ -298,15 +253,15 @@ struct Supertonic3Synthesizer {
             noisyLatent = try reshape(denoised, to: veLatentShape)
         }
 
-        // Trim the padded bucket output back to the true latent length before the
-        // vocoder (which accepts a RangeDim latent length).
+        // Drop the floor padding before the vocoder, which takes a RangeDim
+        // latent length of its own.
         let vocoderLatent: MLMultiArray
-        if padLen == trueLen {
+        if veLen == trueLen {
             vocoderLatent = noisyLatent
         } else {
             let denoisedFlat = Supertonic3MultiArray.extractFloats(noisyLatent)
             let trimmed = Self.trimRows(
-                denoisedFlat, channels: channels, fromLen: padLen, toLen: trueLen)
+                denoisedFlat, channels: channels, fromLen: veLen, toLen: trueLen)
             vocoderLatent = try makeFloat(values: trimmed, shape: latentShape)
         }
 
@@ -363,7 +318,7 @@ struct Supertonic3Synthesizer {
         }
     }
 
-    // MARK: - Bucket padding helpers (channel-major [1, C, L] flattened)
+    // MARK: - Latent floor padding (channel-major [1, C, L] flattened)
 
     /// Right-pad each channel row from `fromLen` to `toLen` with zeros.
     /// Input/output are row-major `[1, channels, len]` flattened (`c*len + t`).
