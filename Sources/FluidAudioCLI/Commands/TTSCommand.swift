@@ -796,9 +796,7 @@ public struct TTS {
         switch raw {
         case "fp16", "fp16dynamic": return .fp16Dynamic
         case "default", "": return .default
-        case "int8", "int6", "int4", "dyn-int8", "dyn-int6", "dyn-int4":
-            return Supertonic3Quantization(rawValue: String(raw.split(separator: "-").last!))
-                .map { .dynamic($0) }
+        case "int8", "int6", "int4": return Supertonic3Quantization(rawValue: raw).map { .dynamic($0) }
         default: return nil
         }
     }

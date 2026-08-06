@@ -195,7 +195,6 @@ struct Supertonic3Synthesizer {
 
         let trueLen = latentDims.length
         let channels = latentDims.channels
-        let latentShape = [latentDims.bsz, channels, trueLen]
 
         // RangeDim is not unbounded: the VectorEstimator and the vocoder both
         // publish a 512-slot latent ceiling, and a near-`tierCeiling` sentence
@@ -256,16 +255,22 @@ struct Supertonic3Synthesizer {
             noisyLatent = try reshape(denoised, to: veLatentShape)
         }
 
-        // Drop the floor padding before the vocoder, which takes a RangeDim
-        // latent length of its own.
+        // Drop the padding before the vocoder — but only down to the vocoder's
+        // own RangeDim floor, which is looser than the VectorEstimator's and
+        // still reachable: duration is clamped to `max(0.05, predicted/speed)`
+        // and 0.05 s is one slot, so a short chunk at a fast rate lands under
+        // 4. Keeping those slots costs nothing, because the waveform is
+        // trimmed to the predicted duration below.
+        let vocoderLen = max(trueLen, Supertonic3Constants.vocoderMinimumLatentSlots)
         let vocoderLatent: MLMultiArray
-        if veLen == trueLen {
+        if veLen == vocoderLen {
             vocoderLatent = noisyLatent
         } else {
             let denoisedFlat = Supertonic3MultiArray.extractFloats(noisyLatent)
             let trimmed = Self.trimRows(
-                denoisedFlat, channels: channels, fromLen: veLen, toLen: trueLen)
-            vocoderLatent = try makeFloat(values: trimmed, shape: latentShape)
+                denoisedFlat, channels: channels, fromLen: veLen, toLen: vocoderLen)
+            vocoderLatent = try makeFloat(
+                values: trimmed, shape: [latentDims.bsz, channels, vocoderLen])
         }
 
         // --- Stage 4: vocoder --- //

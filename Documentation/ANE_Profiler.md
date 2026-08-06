@@ -173,8 +173,8 @@ Latency **measured on real synthesis**, warm (one short sentence; `tts --backend
 | Model | Type | ANE | GPU | CPU | ops | Size | Heavy graph → device |
 |-------|------|----:|----:|----:|----:|-----:|----------------------|
 | Kokoro ANE (7-stage) | batch (per utterance) | 75% | 0% | 25% | 1472 | 83 MB | Vocoder → ANE |
-| Supertonic (`--ve-variant fp16`, legacy) | batch (8-step diffusion) | 30% | 0% | 70% | 1365 | 192 MB | VectorEstimator → **CPU** (dynamic shapes can't use ANE) |
-| Supertonic (default, int4 L-bucketed) | batch (8-step diffusion) | ~90% | 0% | ~10% | 1289 | 102 MB | VectorEstimator → **ANE** (fixed L-buckets) |
+| Supertonic (historical, `--ve-variant fp16`) | batch (8-step diffusion) | 30% | 0% | 70% | 1365 | 192 MB | VectorEstimator → **CPU** (RangeDim shapes can't use ANE) |
+| Supertonic (historical, int4 L-bucketed) | batch (8-step diffusion) | ~90% | 0% | ~10% | 1289 | 102 MB | VectorEstimator → **ANE**; build retired, see below |
 | PocketTTS (v2.1) | streaming (autoregressive) | ~9% | ~31% | ~60% | 2629 | ~330 MB | flow_decoder_fused → **ANE**; flowlm/cond → GPU; mimi → CPU |
 
 **Component detail**
@@ -222,13 +222,13 @@ metric MLComputePlan reports — verified equal on the fused decoder: 1252).
 > `MLComputePlan.load`) — not part of the v2.1 synthesis path.
 
 ### Supertonic
-`VectorEstimator` runs once per denoising step (default 8) and is the heaviest stage. The **default is
-now the fixed-length int4 (L-bucketed) build** (`.aneBucketed(.int4)`): ~94% on the ANE, ~2.7× faster
-end-to-end, with 4-bit k-means palettization that is perceptually clean. The synthesizer pads each
-chunk's latent up to the smallest bucket ≥ its length (L ∈ {128, 256, 512}; 128 covers the common
-case). The legacy **fp16 dynamic** build (`--ve-variant fp16`) uses RangeDim shapes Core ML **cannot
-place on the ANE**, so it stays on CPU; the `ANECCompile() FAILED` line it emits is non-fatal noise.
-Verified M5 Pro / macOS 26.5; see [Supertonic3 docs](TTS/Supertonic3.md#vectorestimator-variants).
+**Supertonic no longer targets the ANE except for the vocoder**, and the rows above are historical.
+The text stages and `VectorEstimator` are pinned `.cpuOnly` on both platforms: ANE exports require
+fixed shapes, which froze the text axis at 128 tokens and split 34.9% of real sentences mid-clause,
+and iOS refuses ANE work to a backgrounded app per program — multi-island BNNS↔ANE graphs get
+`kIOReturnNotPermitted`, while single-block programs like the vocoder keep running. The fixed-length
+L-bucketed builds are retired. The `ANECCompile() FAILED` line RangeDim models emit is non-fatal
+noise. See [Supertonic3 docs](TTS/Supertonic3.md#compute-placement).
 
 | Component | ANE | GPU | CPU | ops | Size | Lat ms |
 |-----------|----:|----:|----:|----:|-----:|-------:|

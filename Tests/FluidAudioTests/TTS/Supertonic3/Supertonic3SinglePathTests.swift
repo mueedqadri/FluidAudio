@@ -477,6 +477,61 @@ final class Supertonic3SinglePathTests: XCTestCase {
     func testPadTargetClearsTheHardAxisFloor() {
         XCTAssertGreaterThanOrEqual(
             Supertonic3Constants.minimumLatentSlots, Supertonic3Constants.dynamicAxisFloor)
+        XCTAssertGreaterThanOrEqual(
+            Supertonic3Constants.minimumLatentSlots,
+            Supertonic3Constants.vocoderMinimumLatentSlots,
+            "the VE pad must also satisfy the vocoder, since the trim goes down from it")
+    }
+
+    /// The vocoder's floor is looser than the VectorEstimator's — `[4, 512]`
+    /// against `[17, 512]` — which is exactly why it is easy to miss: the
+    /// latent is padded to 32 for the VE and then trimmed back, and the trim
+    /// is where it can fall under 4. Read the bound off the model rather than
+    /// trusting the constant.
+    func testVocoderFloorMatchesThePublishedBound() throws {
+        try XCTSkipUnless(Self.installed("Vocoder.mlmodelc"), "vocoder not installed locally")
+        let model = try Supertonic3ModelStore.loadCPUStage(
+            repoDir: Self.localRepoDirectory, fileName: "Vocoder.mlmodelc", functionName: nil)
+        let constraint = try XCTUnwrap(
+            model.modelDescription.inputDescriptionsByName["latent"]?.multiArrayConstraint)
+        XCTAssertEqual(
+            constraint.shapeConstraint.sizeRangeForDimension[2].rangeValue.location,
+            Supertonic3Constants.vocoderMinimumLatentSlots)
+    }
+
+    /// Regression: a one- or two-token chunk at a fast rate predicts a latent
+    /// under the vocoder's floor and used to fail the bind — "Size (3) of
+    /// dimension (2) is not in allowed range (4..512)" — surfacing to the user
+    /// as a dead chunk. Duration is clamped to `max(0.05, predicted/speed)`,
+    /// and 0.05 s is one slot, so no speed is high enough to escape it.
+    ///
+    /// `"7."` is not a contrived input: PDF headings are isolated into their
+    /// own chunks, so a bare numeral is ordinary content.
+    func testTinyChunkAtFastSpeedClearsTheVocoderFloor() async throws {
+        try XCTSkipUnless(Self.hasEverythingForSynthesis, "synthesis assets not installed locally")
+
+        let synthesizer = try await Self.makeSynthesizer()
+        let style = try Supertonic3VoiceStyle.load(
+            from: Self.localRepoDirectory.appendingPathComponent(Supertonic3Voice.m1.fileName))
+
+        var sawSubFloor = false
+        for speed in [Float(6), 8, 16, 40] {
+            let (samples, duration) = try await synthesizer.synthesize(
+                text: "7.", language: "en", style: style,
+                totalSteps: Supertonic3Constants.defaultTotalSteps,
+                speed: speed, silenceDuration: Supertonic3Constants.defaultSilenceDuration)
+
+            let slots = Self.latentSlots(forDuration: duration)
+            if slots < Supertonic3Constants.vocoderMinimumLatentSlots { sawSubFloor = true }
+            print(
+                "[vocoder floor] \"7.\" at \(speed)x -> "
+                    + "\(String(format: "%.4f", duration))s = \(slots) slots "
+                    + "(floor \(Supertonic3Constants.vocoderMinimumLatentSlots))")
+            XCTAssertFalse(samples.isEmpty, "\(speed)x produced no audio")
+        }
+        XCTAssertTrue(
+            sawSubFloor,
+            "no speed drove the latent under the vocoder floor, so this proved nothing")
     }
 
     func testPadRowsNoopWhenLengthsEqual() {

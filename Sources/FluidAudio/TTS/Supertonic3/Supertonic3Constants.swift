@@ -154,6 +154,22 @@ public enum Supertonic3Constants {
     /// changes nothing but the speed.
     public static let minimumLatentSlots: Int = 32
 
+    /// Lower bound of the vocoder's own latent RangeDim, `[4, 512]` — a
+    /// separate, looser bound than the VectorEstimator's, and the reason the
+    /// trim back down from `minimumLatentSlots` has a floor of its own.
+    ///
+    /// Reachable: duration is clamped to `max(0.05, predicted / speed)`, and
+    /// 0.05 s is a single latent slot. A short chunk at a fast rate lands
+    /// under 4 — measured, `"7."` at 6× gives exactly 4 and at 8× gives 3,
+    /// which CoreML rejects ("Size (3) of dimension (2) is not in allowed
+    /// range (4..512)") and the caller sees as a failed vocoder stage. PDF
+    /// headings are isolated into their own chunks, so one- and two-token
+    /// chunks are ordinary input, not a corner case.
+    ///
+    /// Padding to it is free: the waveform is trimmed to the predicted
+    /// duration afterwards, which discards the extra samples anyway.
+    public static let vocoderMinimumLatentSlots: Int = 4
+
     // MARK: - Inference
 
     /// Default number of denoising steps for the vector_estimator loop. The
