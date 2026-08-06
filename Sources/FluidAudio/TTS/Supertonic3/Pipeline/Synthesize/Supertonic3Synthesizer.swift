@@ -211,10 +211,13 @@ struct Supertonic3Synthesizer {
         }
         let vectorEstimator = try await store.vectorEstimator()
 
-        // The same axis has a floor, 17 slots, and short utterances fall under
-        // it — "Yes." predicts 16. Pad up to it (the mask keeps the tail out of
-        // the computation) and trim back before the vocoder, whose floor is 4.
-        let veLen = max(trueLen, Supertonic3Constants.dynamicAxisFloor)
+        // The same axis has a floor, and short utterances fall under it — a
+        // one-word paragraph at 2x speed predicts 10 slots against a bound of
+        // 17. Pad up to `minimumLatentSlots`, which clears that bound and the
+        // int8 kernel's 32-wide tile in one step (below the tile a short chunk
+        // costs up to 47x more per step than a padded one). The mask keeps the
+        // tail out of the computation; the trim below takes it back off.
+        let veLen = max(trueLen, Supertonic3Constants.minimumLatentSlots)
         let veLatentShape = [latentDims.bsz, channels, veLen]
 
         let noisyFlat =

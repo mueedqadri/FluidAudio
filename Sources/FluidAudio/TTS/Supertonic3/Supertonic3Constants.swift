@@ -129,11 +129,30 @@ public enum Supertonic3Constants {
     ///   `wideTextBuckets` starts at 32.
     /// - *Latent axis.* `"Yes."` predicts 16 slots. CoreML rejects the bind
     ///   ("Size (16) of dimension (2) is not in allowed range (17..512)"), so
-    ///   the synthesizer pads the latent and its mask up to this floor and
-    ///   trims back before the vocoder, whose own floor is 4. The pad is
-    ///   masked out, and it is a fraction of the ≥128-slot bucket padding
-    ///   every short chunk used to carry.
+    ///   the synthesizer pads the latent and its mask up to
+    ///   `minimumLatentSlots` (which clears this bound as well) and trims back
+    ///   before the vocoder, whose own floor is 4.
     public static let dynamicAxisFloor: Int = 17
+
+    /// Latent length the synthesizer pads up to before running the
+    /// VectorEstimator. Both a correctness bound (it clears `dynamicAxisFloor`)
+    /// and, far more expensively, a **performance** one.
+    ///
+    /// The int8 VectorEstimator's CPU kernel is tiled 32 wide on the latent
+    /// axis. Below that it drops to a fallback whose cost *grows* as the input
+    /// shrinks — measured per denoising step, M-series, text axis held at 64
+    /// (which is itself flat from 17 to 128, so the text axis is not involved):
+    ///
+    /// | latent | 17 | 22 | 27 | 31 | **32** | 40 | 64 | 128 |
+    /// | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+    /// | ms/step | 76 | 257 | 430 | 577 | **12** | 14 | 15 | 26 |
+    ///
+    /// A 31-slot latent costs 47× what a 32-slot one does. Left unpadded, a
+    /// short paragraph — the common case for dialogue, headings and list items
+    /// — synthesized at **0.7× realtime**, i.e. slower than playback, while a
+    /// full sentence ran at 18×. The pad is masked out and trimmed off, so it
+    /// changes nothing but the speed.
+    public static let minimumLatentSlots: Int = 32
 
     // MARK: - Inference
 

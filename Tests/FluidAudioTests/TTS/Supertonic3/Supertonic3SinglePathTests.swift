@@ -462,7 +462,7 @@ final class Supertonic3SinglePathTests: XCTestCase {
     func testPadThenTrimRoundTripsAtTheFloor() {
         let channels = 4
         let trueLen = 12
-        let floor = Supertonic3Constants.dynamicAxisFloor
+        let floor = Supertonic3Constants.minimumLatentSlots
         let flat = (0..<(channels * trueLen)).map { Float($0) }
         let padded = Supertonic3Synthesizer.padRows(
             flat, channels: channels, fromLen: trueLen, toLen: floor)
@@ -470,6 +470,13 @@ final class Supertonic3SinglePathTests: XCTestCase {
         let restored = Supertonic3Synthesizer.trimRows(
             padded, channels: channels, fromLen: floor, toLen: trueLen)
         XCTAssertEqual(restored, flat)
+    }
+
+    /// The pad target has to clear the model's hard bound as well as the
+    /// kernel's tile, or short chunks fail the bind instead of merely crawling.
+    func testPadTargetClearsTheHardAxisFloor() {
+        XCTAssertGreaterThanOrEqual(
+            Supertonic3Constants.minimumLatentSlots, Supertonic3Constants.dynamicAxisFloor)
     }
 
     func testPadRowsNoopWhenLengthsEqual() {
