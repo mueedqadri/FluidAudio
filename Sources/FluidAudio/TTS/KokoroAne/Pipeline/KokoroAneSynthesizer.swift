@@ -69,7 +69,16 @@ public struct KokoroAneSynthesizer {
 
         // duration → pred_dur (int32, rounded, clamped ≥ 1)
         let duration = try outputArray(postOut, key: "duration", stage: .postAlbert)
-        let durFloats = KokoroAneArrays.readFloats(duration)
+        var durFloats = KokoroAneArrays.readFloats(duration)
+        // PostAlbert divides every token's duration by `speed`, BOS and EOS
+        // included. Those pads carry no speech, and a BOS stretched past its
+        // 1.0x length is out of distribution: the vocoder fills the extra
+        // frames with a spurious utterance right before the first word. Hold
+        // both pads at their 1.0x length so only spoken tokens slow down.
+        if speed > 0, durFloats.count >= 2 {
+            durFloats[0] *= speed
+            durFloats[durFloats.count - 1] *= speed
+        }
         let predDur = durFloats.map { d -> Int32 in
             let r = Int32(Float(d).rounded())
             return max(r, 1)
