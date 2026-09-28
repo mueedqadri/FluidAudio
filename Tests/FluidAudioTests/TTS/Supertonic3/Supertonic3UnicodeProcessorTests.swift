@@ -110,6 +110,20 @@ final class Supertonic3UnicodeProcessorTests: XCTestCase {
         XCTAssertFalse(out.contains("''"))  // no doubled apostrophes
     }
 
+    func testEnglishGetsPlainLatinLetters() {
+        XCTAssertEqual(
+            Supertonic3UnicodeProcessor.preprocess(text: "his \u{02BF}Umdat al-\u{1E63}afwa f\u{012B} \u{1E25}ill", lang: "en"),
+            "<en>his Umdat al-safwa fi hill.</en>")
+        XCTAssertEqual(
+            Supertonic3UnicodeProcessor.preprocess(text: "Caf\u{00E9}, don\u{02BC}t go", lang: "en"),
+            "<en>Cafe, don't go.</en>")
+    }
+
+    func testOtherLanguagesKeepTheirMarks() {
+        let french = Supertonic3UnicodeProcessor.preprocess(text: "un caf\u{00E9} d\u{00E9}j\u{00E0}", lang: "fr")
+        XCTAssertEqual(french, "<fr>un caf\u{0065}\u{0301} d\u{0065}\u{0301}j\u{0061}\u{0300}.</fr>")
+    }
+
     // MARK: - mask()
 
     func testMaskShapeAndOnesPerRowMatchLengths() {

@@ -6,6 +6,7 @@ import Foundation
 /// Pipeline:
 ///   1. NFKD-decompose the input (`decomposedStringWithCompatibilityMapping`).
 ///   2. Strip emoji blocks (wide Unicode ranges the model never saw).
+///   2a. English only: drop letters' marks and transliteration signs.
 ///   3. Replace dashes/quotes/brackets/arrows with ASCII equivalents.
 ///   4. Drop a fixed set of decorative symbols (`♥`, `☆`, `\\`, …).
 ///   5. Expand known abbreviations (`@` → " at ", `e.g.,` → "for example,", …).
@@ -98,6 +99,10 @@ struct Supertonic3UnicodeProcessor {
                     && $0.properties.generalCategory != .format
             })
 
+        if lang == "en" {
+            text = Self.plainLatin(text)
+        }
+
         for (old, new) in Self.symbolReplacements {
             text = text.replacingOccurrences(of: old, with: new)
         }
@@ -138,6 +143,30 @@ struct Supertonic3UnicodeProcessor {
         }
 
         return "<\(lang)>\(text)</\(lang)>"
+    }
+
+    /// English text with its letters' marks dropped and transliteration signs
+    /// removed: `ʿUmdat al-ṣafwa fī ḥill` → `Umdat al-safwa fi hill`.
+    ///
+    /// Runs after NFKD, so a marked letter is already its base letter plus
+    /// combining marks. In one English call, `ʿ ṣ ī ḥ` made the voice stumble on
+    /// the words around them, the year before them included; written plain, the
+    /// sentence read cleanly. The modifier apostrophe (U+02BC) is an apostrophe
+    /// in English, so it becomes one rather than disappearing from `don't`.
+    static func plainLatin(_ text: String) -> String {
+        var scalars = String.UnicodeScalarView()
+        for scalar in text.unicodeScalars {
+            if scalar.value == 0x02BC {
+                scalars.append("'")
+            } else if scalar.properties.generalCategory == .nonspacingMark
+                || (0x02B0...0x02FF).contains(scalar.value)
+            {
+                continue
+            } else {
+                scalars.append(scalar)
+            }
+        }
+        return String(scalars)
     }
 
     static func mask(from lengths: [Int], maxLen: Int) -> [[[Float]]] {
