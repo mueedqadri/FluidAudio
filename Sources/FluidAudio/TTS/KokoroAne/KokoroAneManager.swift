@@ -284,24 +284,25 @@ public actor KokoroAneManager {
         var audioOffsetSec = 0.0
 
         for chunkSegments in chunks {
-            let phonemeString = chunkSegments.map(\.phonemes).joined(separator: " ")
-            let result = try await runChain(phonemes: phonemeString, voice: voice, speed: speed)
+            for (pieceSegments, result) in try await runChainWithinFrameCap(
+                chunkSegments, voice: voice, speed: speed)
+            {
+                wordTimings.append(
+                    contentsOf: Self.wordTimings(
+                        segments: pieceSegments,
+                        perTokenFrames: result.perTokenFrames,
+                        durationSeconds: result.durationSeconds,
+                        offsetSeconds: audioOffsetSec,
+                        vocab: vocab))
 
-            wordTimings.append(
-                contentsOf: Self.wordTimings(
-                    segments: chunkSegments,
-                    perTokenFrames: result.perTokenFrames,
-                    durationSeconds: result.durationSeconds,
-                    offsetSeconds: audioOffsetSec,
-                    vocab: vocab))
-
-            samples.append(contentsOf: result.samples)
-            sampleRate = result.sampleRate
-            encoderTokens += result.encoderTokens
-            acousticFrames += result.acousticFrames
-            perTokenFrames.append(contentsOf: result.perTokenFrames)
-            timings.add(result.timings)
-            audioOffsetSec += result.durationSeconds
+                samples.append(contentsOf: result.samples)
+                sampleRate = result.sampleRate
+                encoderTokens += result.encoderTokens
+                acousticFrames += result.acousticFrames
+                perTokenFrames.append(contentsOf: result.perTokenFrames)
+                timings.add(result.timings)
+                audioOffsetSec += result.durationSeconds
+            }
         }
 
         return KokoroAneSynthesisResult(
@@ -335,34 +336,107 @@ public actor KokoroAneManager {
         try await g2pModel.phonemize(word: word)
     }
 
-    /// Greedily group segments so each chunk's joined phoneme string (segments
-    /// + single-space separators) stays within `maxLength`. Splits only at word
-    /// boundaries; a lone segment longer than the cap becomes its own chunk and
-    /// `runChain` throws `phonemeSequenceTooLong`, matching the flat path.
+    /// Run one group of segments, re-splitting it when speed stretches it past
+    /// the 2,000-frame cap.
+    ///
+    /// Duration is divided by speed, so a group that fits at 1x can overrun at
+    /// 0.5x: measured, 449 phonemes predict 1,062 frames at 1x and 2,117 at
+    /// 0.5x. The overrun reports the frames it predicted, so the group is
+    /// regrouped at the phoneme length those frames say fits, with 5% headroom,
+    /// and each piece is run the same way. A lone segment has nowhere to split
+    /// and rethrows.
+    private func runChainWithinFrameCap(
+        _ segments: [KokoroAneEnglishPhonemizer.PhonemeSegment],
+        voice: String?,
+        speed: Float
+    ) async throws -> [([KokoroAneEnglishPhonemizer.PhonemeSegment], KokoroAneSynthesisResult)] {
+        let phonemeString = segments.map(\.phonemes).joined(separator: " ")
+        do {
+            return [(segments, try await runChain(phonemes: phonemeString, voice: voice, speed: speed))]
+        } catch KokoroAneError.acousticFramesExceedCap(let have, let cap) where segments.count > 1 {
+            let length = phonemeString.count
+            let fitting = max(1, min(length - 1, length * cap * 19 / (have * 20)))
+            let groups = Self.groupSegmentsIntoChunks(segments, maxLength: fitting)
+            logger.notice(
+                "\(length) phonemes predicted \(have) frames against \(cap) at speed "
+                    + "\(String(format: "%.2f", speed)); splitting into \(groups.count)")
+            var pieces: [([KokoroAneEnglishPhonemizer.PhonemeSegment], KokoroAneSynthesisResult)] = []
+            for group in groups {
+                pieces += try await runChainWithinFrameCap(group, voice: voice, speed: speed)
+            }
+            return pieces
+        }
+    }
+
+    /// Group segments so each chunk's joined phoneme string (segments +
+    /// single-space separators) stays within `maxLength`.
+    ///
+    /// Each chunk is spoken as its own utterance and falls at its end, so where
+    /// it ends is heard. The grouping uses the fewest chunks that fit, then
+    /// prefers ending a chunk after clause punctuation, then keeps chunks near
+    /// equal length: a greedy fill turns a 520-phoneme sentence into 510 and a
+    /// stranded 10. Splits only at word boundaries; a lone segment longer than
+    /// the cap becomes its own chunk and `runChain` throws
+    /// `phonemeSequenceTooLong`, matching the flat path.
     static func groupSegmentsIntoChunks(
         _ segments: [KokoroAneEnglishPhonemizer.PhonemeSegment],
         maxLength: Int
     ) -> [[KokoroAneEnglishPhonemizer.PhonemeSegment]] {
-        var chunks: [[KokoroAneEnglishPhonemizer.PhonemeSegment]] = []
-        var current: [KokoroAneEnglishPhonemizer.PhonemeSegment] = []
-        var currentLength = 0  // joined length of `current`
+        guard !segments.isEmpty else { return [] }
+        let count = segments.count
+        var prefix = [0]
+        for segment in segments { prefix.append(prefix[prefix.count - 1] + segment.phonemes.count) }
+        func joinedLength(_ start: Int, _ end: Int) -> Int {
+            prefix[end] - prefix[start] + (end - start - 1)
+        }
 
-        for segment in segments {
-            let addition =
-                current.isEmpty
-                ? segment.phonemes.count
-                : segment.phonemes.count + 1  // +1 for the joining space
-            if !current.isEmpty, currentLength + addition > maxLength {
-                chunks.append(current)
-                current = [segment]
-                currentLength = segment.phonemes.count
-            } else {
-                current.append(segment)
-                currentLength += addition
+        let total = joinedLength(0, count)
+        guard total > maxLength else { return [segments] }
+        let target = total / ((total + maxLength - 1) / max(maxLength, 1))
+        // A cut away from clause punctuation is worth this much imbalance.
+        let unclausedCut = max(1, target / 2)
+        // Larger than every other cost summed, so fewer chunks always wins.
+        let chunkCost = (count + 1) * (total + unclausedCut + 1)
+
+        var best = [Int](repeating: .max, count: count + 1)
+        var previous = [Int](repeating: 0, count: count + 1)
+        best[0] = 0
+        for start in 0..<count where best[start] != .max {
+            for end in (start + 1)...count {
+                let length = joinedLength(start, end)
+                if length > maxLength, end > start + 1 { break }
+                let cut = end < count && !endsClause(segments[end - 1]) ? unclausedCut : 0
+                let cost = best[start] + chunkCost + abs(length - target) + cut
+                if cost < best[end] {
+                    best[end] = cost
+                    previous[end] = start
+                }
             }
         }
-        if !current.isEmpty { chunks.append(current) }
+
+        var bounds: [Int] = []
+        var cursor = count
+        while cursor > 0 {
+            bounds.append(cursor)
+            cursor = previous[cursor]
+        }
+        var chunks: [[KokoroAneEnglishPhonemizer.PhonemeSegment]] = []
+        var start = 0
+        for end in bounds.reversed() {
+            chunks.append(Array(segments[start..<end]))
+            start = end
+        }
         return chunks
+    }
+
+    /// Whether a segment ends at a pause the voice already makes. Kept
+    /// punctuation attaches to the preceding word's phonemes, so it is the
+    /// segment's last character, behind any closing quote or bracket.
+    private static func endsClause(_ segment: KokoroAneEnglishPhonemizer.PhonemeSegment) -> Bool {
+        let closers: Set<Character> = ["\"", "'", "\u{201D}", "\u{2019}", ")", "]", "}", "\u{00BB}"]
+        let marks: Set<Character> = [",", ";", ":", ".", "!", "?", "\u{2014}", "\u{2026}"]
+        guard let last = segment.phonemes.last(where: { !closers.contains($0) }) else { return false }
+        return marks.contains(last)
     }
 
     /// Attribute one chunk's per-token frame durations to its source words.

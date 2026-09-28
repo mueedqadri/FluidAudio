@@ -141,14 +141,34 @@ final class KokoroAneWordTimingTests: XCTestCase {
     func testGroupSegmentsSplitsAtWordBoundaryUnderCap() {
         let segments = [
             Segment(word: "a", phonemes: "aaaa"),   // 4
-            Segment(word: "b", phonemes: "bbbb"),   // 4 (+1 space = 9)
-            Segment(word: "c", phonemes: "cccc"),   // would push to 14
+            Segment(word: "b", phonemes: "bbbb,"),  // 5, ends a clause
+            Segment(word: "c", phonemes: "cccc"),   // 4; all three join to 15
         ]
-        // Cap 10: "aaaa bbbb" = 9 fits; adding " cccc" = 14 > 10 → new chunk.
         let chunks = KokoroAneManager.groupSegmentsIntoChunks(segments, maxLength: 10)
-        XCTAssertEqual(chunks.count, 2)
-        XCTAssertEqual(chunks[0].map(\.word), ["a", "b"])
-        XCTAssertEqual(chunks[1].map(\.word), ["c"])
+        XCTAssertEqual(chunks.map { $0.map(\.word) }, [["a", "b"], ["c"]])
+        XCTAssertTrue(chunks.allSatisfy { $0.map(\.phonemes).joined(separator: " ").count <= 10 })
+    }
+
+    /// A greedy fill left the last word alone; the split lands mid-sentence instead.
+    func testGroupSegmentsLeavesNoStrandedTail() {
+        let segments = (0..<12).map { Segment(word: "w\($0)", phonemes: "wwww") }  // 12 × 4 + 11 = 59
+        let chunks = KokoroAneManager.groupSegmentsIntoChunks(segments, maxLength: 50)
+        XCTAssertEqual(chunks.map(\.count), [6, 6])
+    }
+
+    /// A cut at a comma beats an exact halfway cut inside a clause.
+    func testGroupSegmentsPrefersClausePunctuation() {
+        var segments = (0..<10).map { Segment(word: "w\($0)", phonemes: "wwww") }
+        segments[3] = Segment(word: "w3", phonemes: "www,")
+        let chunks = KokoroAneManager.groupSegmentsIntoChunks(segments, maxLength: 40)  // 10 × 4 + 9 = 49
+        XCTAssertEqual(chunks.map(\.count), [4, 6])
+    }
+
+    func testGroupSegmentsSeesPunctuationBehindAClosingQuote() {
+        var segments = (0..<10).map { Segment(word: "w\($0)", phonemes: "wwww") }
+        segments[5] = Segment(word: "w5", phonemes: "ww.\u{201D}")
+        let chunks = KokoroAneManager.groupSegmentsIntoChunks(segments, maxLength: 40)
+        XCTAssertEqual(chunks.map(\.count), [6, 4])
     }
 
     func testGroupSegmentsSingleChunkWhenUnderCap() {
