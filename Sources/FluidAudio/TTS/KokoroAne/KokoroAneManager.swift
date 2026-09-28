@@ -369,74 +369,23 @@ public actor KokoroAneManager {
     }
 
     /// Group segments so each chunk's joined phoneme string (segments +
-    /// single-space separators) stays within `maxLength`.
-    ///
-    /// Each chunk is spoken as its own utterance and falls at its end, so where
-    /// it ends is heard. The grouping uses the fewest chunks that fit, then
-    /// prefers ending a chunk after clause punctuation, then keeps chunks near
-    /// equal length: a greedy fill turns a 520-phoneme sentence into 510 and a
-    /// stranded 10. Splits only at word boundaries; a lone segment longer than
-    /// the cap becomes its own chunk and `runChain` throws
+    /// single-space separators) stays within `maxLength`, by the shared
+    /// `BalancedSplit` rule: fewest chunks, clause cuts, even lengths. Kept
+    /// punctuation attaches to the preceding word's phonemes, so a segment ends
+    /// a clause when its phonemes do. Splits only at word boundaries; a lone
+    /// segment longer than the cap becomes its own chunk and `runChain` throws
     /// `phonemeSequenceTooLong`, matching the flat path.
     static func groupSegmentsIntoChunks(
         _ segments: [KokoroAneEnglishPhonemizer.PhonemeSegment],
         maxLength: Int
     ) -> [[KokoroAneEnglishPhonemizer.PhonemeSegment]] {
-        guard !segments.isEmpty else { return [] }
-        let count = segments.count
-        var prefix = [0]
-        for segment in segments { prefix.append(prefix[prefix.count - 1] + segment.phonemes.count) }
-        func joinedLength(_ start: Int, _ end: Int) -> Int {
-            prefix[end] - prefix[start] + (end - start - 1)
-        }
-
-        let total = joinedLength(0, count)
-        guard total > maxLength else { return [segments] }
-        let target = total / ((total + maxLength - 1) / max(maxLength, 1))
-        // A cut away from clause punctuation is worth this much imbalance.
-        let unclausedCut = max(1, target / 2)
-        // Larger than every other cost summed, so fewer chunks always wins.
-        let chunkCost = (count + 1) * (total + unclausedCut + 1)
-
-        var best = [Int](repeating: .max, count: count + 1)
-        var previous = [Int](repeating: 0, count: count + 1)
-        best[0] = 0
-        for start in 0..<count where best[start] != .max {
-            for end in (start + 1)...count {
-                let length = joinedLength(start, end)
-                if length > maxLength, end > start + 1 { break }
-                let cut = end < count && !endsClause(segments[end - 1]) ? unclausedCut : 0
-                let cost = best[start] + chunkCost + abs(length - target) + cut
-                if cost < best[end] {
-                    best[end] = cost
-                    previous[end] = start
-                }
-            }
-        }
-
-        var bounds: [Int] = []
-        var cursor = count
-        while cursor > 0 {
-            bounds.append(cursor)
-            cursor = previous[cursor]
-        }
-        var chunks: [[KokoroAneEnglishPhonemizer.PhonemeSegment]] = []
-        var start = 0
-        for end in bounds.reversed() {
-            chunks.append(Array(segments[start..<end]))
-            start = end
-        }
-        return chunks
-    }
-
-    /// Whether a segment ends at a pause the voice already makes. Kept
-    /// punctuation attaches to the preceding word's phonemes, so it is the
-    /// segment's last character, behind any closing quote or bracket.
-    private static func endsClause(_ segment: KokoroAneEnglishPhonemizer.PhonemeSegment) -> Bool {
-        let closers: Set<Character> = ["\"", "'", "\u{201D}", "\u{2019}", ")", "]", "}", "\u{00BB}"]
-        let marks: Set<Character> = [",", ";", ":", ".", "!", "?", "\u{2014}", "\u{2026}"]
-        guard let last = segment.phonemes.last(where: { !closers.contains($0) }) else { return false }
-        return marks.contains(last)
+        BalancedSplit.groups(
+            lengths: segments.map(\.phonemes.count),
+            clauseBreakAfter: segments.dropLast().map {
+                BalancedSplit.endsClause($0.phonemes, marks: PhonemeChunker.defaultBoundaryPunctuation)
+            },
+            maxLength: maxLength
+        ).map { Array(segments[$0]) }
     }
 
     /// Attribute one chunk's per-token frame durations to its source words.

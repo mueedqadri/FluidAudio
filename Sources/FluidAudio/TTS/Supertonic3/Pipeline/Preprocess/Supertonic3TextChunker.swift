@@ -4,9 +4,10 @@ import Foundation
 ///
 /// The chunker splits by paragraphs first, then packs whole sentences up to
 /// the cap (abbreviation-aware). A sentence that on its own exceeds the cap is
-/// split further — first at clause separators, then at whitespace.
+/// split further at word boundaries, preferring clause separators, into pieces
+/// of near-equal size (`BalancedSplit`).
 ///
-/// Those last two fallbacks are a **deviation from the reference**, which only
+/// That fallback is a **deviation from the reference**, which only
 /// ever breaks at sentence boundaries and hands an over-long sentence to the
 /// model whole. We cannot in general: a text axis is frozen into every CoreML
 /// export, and anything past it is silently truncated by
@@ -29,8 +30,8 @@ import Foundation
 /// between two complete sentences costs nothing, while widening a chunk drags
 /// short sentences onto the slower CPU tier for no prosody gain.
 ///
-/// Only a sentence past `wholeSentenceTokens` still clause-splits, and its
-/// pieces are then free to land back on the fast tier if they fit.
+/// Only a sentence past `wholeSentenceTokens` still splits, and its pieces are
+/// then free to land back on the fast tier if they fit.
 ///
 /// ## Why the cap is measured in encoded tokens
 ///
@@ -158,9 +159,9 @@ enum Supertonic3TextChunker {
             if length > wholeSentenceTokens {
                 // Past even the wide tier: the only remaining choice is where
                 // the seams land, so put them at clause separators the model
-                // already pauses at.
+                // already pauses at, in pieces of near-equal size.
                 flush(&current, into: &chunks)
-                packClauses(
+                splitEvenly(
                     trimmed, lang: lang, maxTokens: wholeSentenceTokens, into: &chunks)
                 continue
             }
@@ -205,69 +206,80 @@ enum Supertonic3TextChunker {
         "\u{FF0C}", "\u{FF1B}", "\u{FF1A}",  // fullwidth comma/semicolon/colon
     ]
 
-    private static func packClauses(
+    /// Split one over-long sentence by `BalancedSplit`: fewest pieces under
+    /// `maxTokens`, cuts after clause separators, even sizes.
+    ///
+    /// A unit ends at whitespace, or right after `、` and the fullwidth
+    /// separators, which CJK writes with no space after them. Unit lengths are estimated as NFKD scalars,
+    /// against a cap net of the `<lang>…</lang>` wrapper and a possible appended
+    /// period. Encoded length is only roughly additive (`preprocess` expands
+    /// dashes and tightens spacing), so each piece is measured exactly and one
+    /// that still overruns is split again. A single unit has nowhere to go and
+    /// is emitted as it is.
+    private static func splitEvenly(
         _ sentence: String, lang: String, maxTokens: Int, into chunks: inout [String]
     ) {
-        var current = ""
-        for rawPart in splitClauses(sentence) {
-            let part = rawPart.trimmingCharacters(in: .whitespacesAndNewlines)
-            if part.isEmpty { continue }
+        let units = splitUnits(sentence)
+        let lengths = units.map { $0.decomposedStringWithCompatibilityMapping.unicodeScalars.count }
+        let clauseBreakAfter = units.dropLast().map {
+            BalancedSplit.endsClause($0.trimmingCharacters(in: .whitespacesAndNewlines), marks: clauseMarks)
+        }
+        let overhead = encodedLength(of: "", lang: lang) + 1
+        splitEvenly(
+            units, lengths: lengths, clauseBreakAfter: clauseBreakAfter,
+            lang: lang, maxTokens: maxTokens, estimatedCap: maxTokens - overhead, into: &chunks)
+    }
 
-            if encodedLength(of: part, lang: lang) > maxTokens {
-                flush(&current, into: &chunks)
-                packWords(part, lang: lang, maxTokens: maxTokens, into: &chunks)
+    private static func splitEvenly(
+        _ units: [String], lengths: [Int], clauseBreakAfter: [Bool],
+        lang: String, maxTokens: Int, estimatedCap: Int, into chunks: inout [String]
+    ) {
+        // Each unit carries the whitespace that followed it, so the joiner is empty.
+        let groups = BalancedSplit.groups(
+            lengths: lengths, separatorLength: 0, clauseBreakAfter: clauseBreakAfter,
+            maxLength: estimatedCap)
+        for group in groups {
+            var piece = units[group].joined()
+            if group.count > 1, encodedLength(of: piece, lang: lang) > maxTokens {
+                // Under the estimate but over the real window: force one more cut.
+                let pieceLengths = Array(lengths[group])
+                splitEvenly(
+                    Array(units[group]), lengths: pieceLengths,
+                    clauseBreakAfter: Array(clauseBreakAfter[group.lowerBound..<(group.upperBound - 1)]),
+                    lang: lang, maxTokens: maxTokens,
+                    estimatedCap: pieceLengths.reduce(0, +) - 1, into: &chunks)
                 continue
             }
-
-            if !current.isEmpty,
-                encodedLength(of: "\(current) \(part)", lang: lang) > maxTokens
-            {
-                chunks.append(current)
-                current = ""
-            }
-            current = current.isEmpty ? part : "\(current) \(part)"
+            flush(&piece, into: &chunks)
         }
-        flush(&current, into: &chunks)
     }
 
-    /// Split at clause separators, keeping each separator on the part it ends.
-    ///
-    /// Retaining it matters twice over: the packer can rejoin parts without
-    /// inventing punctuation that wasn't there, and a chunk that ends at a
-    /// separator keeps it, so `preprocess` sees a clause ending rather than a
-    /// bare fragment it has to terminate with a fabricated period.
-    private static func splitClauses(_ sentence: String) -> [String] {
-        var parts: [String] = []
+    /// The sentence cut after each whitespace run and after each unspaced
+    /// separator; joined back, the units are the sentence.
+    private static func splitUnits(_ sentence: String) -> [String] {
+        var units: [String] = []
         var buffer = ""
+        var inWhitespace = false
         for character in sentence {
-            buffer.append(character)
-            if clauseSeparators.contains(character) {
-                parts.append(buffer)
+            if character.isWhitespace {
+                inWhitespace = true
+            } else if inWhitespace || unspacedSeparators.contains(buffer.last ?? " ") {
+                if !buffer.isEmpty { units.append(buffer) }
                 buffer = ""
+                inWhitespace = false
             }
+            buffer.append(character)
         }
-        if !buffer.isEmpty {
-            parts.append(buffer)
-        }
-        return parts
+        if !buffer.isEmpty { units.append(buffer) }
+        return units
     }
 
-    private static func packWords(
-        _ phrase: String, lang: String, maxTokens: Int, into chunks: inout [String]
-    ) {
-        var current = ""
-        for word in phrase.split(whereSeparator: { $0.isWhitespace }) {
-            let w = String(word)
-            if !current.isEmpty,
-                encodedLength(of: "\(current) \(w)", lang: lang) > maxTokens
-            {
-                chunks.append(current)
-                current = ""
-            }
-            current = current.isEmpty ? w : "\(current) \(w)"
-        }
-        flush(&current, into: &chunks)
-    }
+    /// Separators CJK writes with no space after them. A Latin comma is not one:
+    /// `1,000` must stay one unit.
+    private static let unspacedSeparators: Set<Character> = ["\u{3001}", "\u{FF0C}", "\u{FF1B}", "\u{FF1A}"]
+
+    /// Clause separators and terminators, as they end a word.
+    private static let clauseMarks: Set<Character> = clauseSeparators.union([".", "!", "?", "\u{2026}", "\u{2014}"])
 
     @inline(__always)
     private static func flush(_ buffer: inout String, into chunks: inout [String]) {

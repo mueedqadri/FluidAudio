@@ -297,4 +297,81 @@ final class Supertonic3TextChunkerTests: XCTestCase {
         let chunks = chunkSingleCap(text, lang: "en", cap: 40)
         XCTAssertEqual(chunks, ["One part here,", "a second part there,", "and a third part at the end."])
     }
+
+    // MARK: - Even pieces past the ceiling
+
+    private func pieceTokens(_ text: String, lang: String = "en") -> [Int] {
+        let chunks = Supertonic3TextChunker.chunk(text: text, lang: lang)
+        assertFits(chunks, lang: lang, Supertonic3Constants.tierCeiling)
+        XCTAssertEqual(
+            chunks.joined(separator: " ").filter { !$0.isWhitespace }, text.filter { !$0.isWhitespace },
+            "pieces lose no characters")
+        return chunks.map { Supertonic3TextChunker.encodedLength(of: $0, lang: lang) }
+    }
+
+    /// Greedy, these were 296 + 104.
+    func testCommaSentencePastTheCeilingSplitsEvenly() {
+        let text = Array(repeating: "the harbour lights across the water, the ferry", count: 8)
+            .joined(separator: ", ") + "."
+        let tokens = pieceTokens(text)
+        XCTAssertEqual(tokens.count, 2)
+        XCTAssertLessThan(abs(tokens[0] - tokens[1]), 60, "\(tokens)")
+        XCTAssertTrue(Supertonic3TextChunker.chunk(text: text, lang: "en")[0].hasSuffix(","))
+    }
+
+    /// Greedy, these were 320 + 319 + 319 + 58.
+    func testCommaFreeRunPastTheCeilingLeavesNoStub() {
+        let text = Array(repeating: "the sand drifted slowly over the empty shore and", count: 20)
+            .joined(separator: " ") + "."
+        let tokens = pieceTokens(text)
+        XCTAssertEqual(tokens.count, 4)
+        XCTAssertGreaterThan(tokens.min() ?? 0, 200, "\(tokens)")
+    }
+
+    /// A real sentence (Meditations, 885 tokens); greedy, it ended in a 61-token
+    /// piece. Three pieces fit only with a mid-clause cut, so it takes four at
+    /// clause breaks.
+    func testLongPublishedSentenceSplitsAtClausesWithoutAStub() {
+        let text =
+            "From Sextus, a benevolent disposition, and the example of a family governed in a "
+            + "fatherly manner, and the idea of living conformably to nature; and gravity without "
+            + "affectation, and to look carefully after the interests of friends, and to tolerate "
+            + "ignorant persons, and those who form opinions without consideration: he had the power "
+            + "of readily accommodating himself to all, so that intercourse with him was more "
+            + "agreeable than any flattery; and at the same time he was most highly venerated by "
+            + "those who associated with him: and he had the faculty both of discovering and "
+            + "ordering, in an intelligent and methodical way, the principles necessary for life; "
+            + "and he never showed anger or any other passion, but was entirely free from passion, "
+            + "and also most affectionate; and he could express approbation without noisy display, "
+            + "and he possessed much knowledge without ostentation."
+        let chunks = Supertonic3TextChunker.chunk(text: text, lang: "en")
+        let tokens = pieceTokens(text)
+        XCTAssertEqual(tokens.count, 4, "\(tokens)")
+        XCTAssertGreaterThan(tokens.min() ?? 0, 180, "\(tokens)")
+        for chunk in chunks.dropLast() {
+            XCTAssertTrue([",", ";", ":"].contains(chunk.last.map(String.init) ?? ""), chunk)
+        }
+    }
+
+    /// Japanese puts no space after `、`, so the cut still lands there.
+    func testUnspacedJapaneseCommaIsACut() {
+        let clause = "吾輩は猫である名前はまだ無いどこで生れたかとんと見当がつかぬ何でも薄暗いじめじめした所で"
+        let text = Array(repeating: clause, count: 8).joined(separator: "、") + "。"
+        XCTAssertGreaterThan(
+            Supertonic3TextChunker.encodedLength(of: text, lang: "ja"), Supertonic3Constants.tierCeiling)
+        let chunks = Supertonic3TextChunker.chunk(text: text, lang: "ja")
+        XCTAssertGreaterThan(chunks.count, 1)
+        assertFits(chunks, lang: "ja", Supertonic3Constants.tierCeiling)
+        XCTAssertEqual(chunks.joined(), text)
+        for chunk in chunks.dropLast() { XCTAssertTrue(chunk.hasSuffix("、"), chunk) }
+    }
+
+    /// A Latin comma with no space after it is part of a number, never a cut.
+    func testCommaInsideANumberIsNotACut() {
+        let text = Array(repeating: "about 1,000 ships sailed past the harbour wall", count: 9)
+            .joined(separator: " and ") + "."
+        let chunks = Supertonic3TextChunker.chunk(text: text, lang: "en")
+        XCTAssertGreaterThan(chunks.count, 1)
+        XCTAssertFalse(chunks.contains { $0.hasSuffix("1,") || $0.hasPrefix("000") })
+    }
 }
