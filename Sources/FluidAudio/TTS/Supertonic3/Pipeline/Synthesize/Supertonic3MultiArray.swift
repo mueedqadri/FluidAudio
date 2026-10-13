@@ -41,6 +41,37 @@ public enum Supertonic3MultiArray {
         return arr
     }
 
+    /// A contiguous array with `tailSlackBytes` of zeroed memory past its end,
+    /// page-aligned, so a kernel that reads past the last element reads zeros.
+    public static func makeWithSlack<T>(
+        _ values: [T], shape: [Int], dataType: MLMultiArrayDataType, tailSlackBytes: Int
+    ) throws -> MLMultiArray {
+        let expected = shape.reduce(1, *)
+        guard values.count == expected else {
+            throw Supertonic3Error.invalidTensorShape(
+                stage: "makeWithSlack",
+                expected: "\(expected) (shape \(shape))",
+                got: "\(values.count)")
+        }
+        let byteCount = values.count * MemoryLayout<T>.stride + max(0, tailSlackBytes)
+        var allocated: UnsafeMutableRawPointer?
+        guard posix_memalign(&allocated, 16_384, byteCount) == 0, let raw = allocated else {
+            throw Supertonic3Error.invalidTensorShape(
+                stage: "makeWithSlack", expected: "\(byteCount) bytes", got: "allocation failed")
+        }
+        memset(raw, 0, byteCount)
+        values.withUnsafeBytes { src in
+            raw.copyMemory(from: src.baseAddress!, byteCount: src.count)
+        }
+        var strides = [Int](repeating: 1, count: shape.count)
+        for i in stride(from: shape.count - 2, through: 0, by: -1) {
+            strides[i] = strides[i + 1] * shape[i + 1]
+        }
+        return try MLMultiArray(
+            dataPointer: raw, shape: shape.map(NSNumber.init), dataType: dataType,
+            strides: strides.map(NSNumber.init), deallocator: { free($0) })
+    }
+
     /// Read out the contents of an `MLMultiArray` as a Swift `[Float]`,
     /// handling Float32 / Float16 / Double / Int32 backing stores.
     public static func extractFloats(_ arr: MLMultiArray) -> [Float] {

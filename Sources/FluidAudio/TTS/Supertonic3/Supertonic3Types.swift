@@ -89,6 +89,8 @@ public enum Supertonic3Quantization: String, Sendable, Equatable, CaseIterable {
 public enum Supertonic3VectorEstimator: Sendable, Equatable {
     case fp16Dynamic
     case dynamic(Supertonic3Quantization)
+    /// int8 weights computed in FP32 — off the FP16 CPU kernels.
+    case fp32Compute
 
     /// Default: dynamic int8 — the precision the fp32 quality ceiling was
     /// measured against, at half the FP16 download.
@@ -99,6 +101,7 @@ public enum Supertonic3VectorEstimator: Sendable, Equatable {
         switch self {
         case .fp16Dynamic: return nil
         case .dynamic(let q): return q.rawValue
+        case .fp32Compute: return "fp32"
         }
     }
 
@@ -108,6 +111,7 @@ public enum Supertonic3VectorEstimator: Sendable, Equatable {
         switch self {
         case .fp16Dynamic: return nil
         case .dynamic(let q): return "dyn-\(q.rawValue)"
+        case .fp32Compute: return "dyn-fp32"
         }
     }
 }

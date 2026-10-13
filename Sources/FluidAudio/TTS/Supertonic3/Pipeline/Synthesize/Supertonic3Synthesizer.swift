@@ -42,7 +42,8 @@ struct Supertonic3Synthesizer {
         style: Supertonic3VoiceStyle,
         totalSteps: Int,
         speed: Float,
-        silenceDuration: Float
+        silenceDuration: Float,
+        options: Supertonic3SynthesisOptions = .standard
     ) async throws -> (samples: [Float], duration: Float) {
         // The chunker sizes itself against the models' token windows directly,
         // so there is no per-language cap to pick here.
@@ -65,7 +66,7 @@ struct Supertonic3Synthesizer {
             // treatment is identical.
             for (pieceSamples, pieceDuration) in try await inferChunk(
                 text: chunk, language: language, style: style,
-                totalSteps: totalSteps, speed: speed)
+                totalSteps: totalSteps, speed: speed, options: options)
             {
                 if isFirst {
                     samples = pieceSamples
@@ -93,15 +94,14 @@ struct Supertonic3Synthesizer {
     private func inferChunk(
         text: String, language: String,
         style: Supertonic3VoiceStyle,
-        totalSteps: Int, speed: Float
+        totalSteps: Int, speed: Float,
+        options: Supertonic3SynthesisOptions = .standard
     ) async throws -> [(samples: [Float], duration: Float)] {
         let tokens = Supertonic3TextChunker.encodedLength(of: text, lang: language)
         do {
-            return [
-                try await infer(
-                    text: text, language: language, style: style,
-                    totalSteps: totalSteps, speed: speed, tokenLength: tokens)
-            ]
+            return try await inferPiece(
+                text: text, language: language, style: style,
+                totalSteps: totalSteps, speed: speed, options: options)
         } catch Supertonic3Error.tierUnavailable(let reason) {
             logger.warning(
                 "A \(tokens)-token chunk exceeds a model window (\(reason)); "
@@ -114,14 +114,81 @@ struct Supertonic3Synthesizer {
                 // Deliberately not recursive: a piece that still overruns has
                 // nowhere left to go, and the error is the honest answer.
                 pieces.append(
-                    try await infer(
+                    contentsOf: try await inferPiece(
                         text: piece, language: language, style: style,
-                        totalSteps: totalSteps, speed: speed,
-                        tokenLength: Supertonic3TextChunker.encodedLength(
-                            of: piece, lang: language)))
+                        totalSteps: totalSteps, speed: speed, options: options))
             }
             return pieces
         }
+    }
+
+    /// One piece, re-split under `maximumLatentSlots` when it predicts past it.
+    private func inferPiece(
+        text: String, language: String,
+        style: Supertonic3VoiceStyle,
+        totalSteps: Int, speed: Float,
+        options: Supertonic3SynthesisOptions
+    ) async throws -> [(samples: [Float], duration: Float)] {
+        let tokens = Supertonic3TextChunker.encodedLength(of: text, lang: language)
+        do {
+            return [
+                try await infer(
+                    text: text, language: language, style: style,
+                    totalSteps: totalSteps, speed: speed, tokenLength: tokens,
+                    options: options)
+            ]
+        } catch let over as LatentOverCap {
+            return try await inferUnderCap(
+                text: text, language: language, style: style,
+                totalSteps: totalSteps, speed: speed, tokens: tokens,
+                over: over, options: options)
+        }
+    }
+
+    /// A chunk predicted past `maximumLatentSlots`: re-split it at clause
+    /// breaks with a token cap scaled by how far over it ran, and synthesize
+    /// the pieces. A piece still over tightens the cap again.
+    private func inferUnderCap(
+        text: String, language: String,
+        style: Supertonic3VoiceStyle,
+        totalSteps: Int, speed: Float, tokens: Int,
+        over: LatentOverCap, options: Supertonic3SynthesisOptions
+    ) async throws -> [(samples: [Float], duration: Float)] {
+        var ratio = Double(over.cap) / Double(over.slots)
+        for _ in 0..<4 {
+            let tokenCap = max(8, Int(Double(tokens) * ratio * 0.95))
+            let pieces = Supertonic3TextChunker.chunk(
+                text: text, lang: language,
+                maxTokens: tokenCap, wholeSentenceTokens: tokenCap)
+            guard pieces.count > 1 else { break }
+            var results: [(samples: [Float], duration: Float)] = []
+            var tooLong: LatentOverCap?
+            for piece in pieces {
+                do {
+                    results.append(
+                        try await infer(
+                            text: piece, language: language, style: style,
+                            totalSteps: totalSteps, speed: speed,
+                            tokenLength: Supertonic3TextChunker.encodedLength(
+                                of: piece, lang: language),
+                            options: options))
+                } catch let again as LatentOverCap {
+                    tooLong = again
+                    break
+                }
+            }
+            guard let tooLong else { return results }
+            ratio *= Double(tooLong.cap) / Double(tooLong.slots)
+        }
+        // Nothing left to split at: speak it whole rather than not at all.
+        var whole = options
+        whole.maximumLatentSlots = nil
+        return [
+            try await infer(
+                text: text, language: language, style: style,
+                totalSteps: totalSteps, speed: speed, tokenLength: tokens,
+                options: whole)
+        ]
     }
 
     // MARK: - Single-chunk inference (batch size 1)
@@ -131,8 +198,10 @@ struct Supertonic3Synthesizer {
         text: String, language: String,
         style: Supertonic3VoiceStyle,
         totalSteps: Int, speed: Float,
-        tokenLength: Int
+        tokenLength: Int,
+        options: Supertonic3SynthesisOptions = .standard
     ) async throws -> (samples: [Float], duration: Float) {
+        let slack = options.inputTailSlackBytes
         let stages = try await store.textStages(forTokenLength: tokenLength)
         let (textEncoder, durationPredictor, maxLen) = stages
         let (idsBatch, maskBatch) = try processor.encode(
@@ -143,13 +212,15 @@ struct Supertonic3Synthesizer {
         let textLen = ids.count
 
         let ids32 = ids.map { Int32(clamping: $0) }
-        let textIds = try makeInt32(values: ids32, shape: [1, textLen])
+        let textIds = try makeInt32(values: ids32, shape: [1, textLen], slack: slack)
 
         let maskFlat = mask[0]
-        let textMask = try makeFloat(values: maskFlat, shape: [1, 1, textLen])
+        let textMask = try makeFloat(values: maskFlat, shape: [1, 1, textLen], slack: slack)
 
-        let styleTTL = try makeFloat(values: style.ttlValues, shape: [1] + Array(style.ttlDims.dropFirst()))
-        let styleDP = try makeFloat(values: style.dpValues, shape: [1] + Array(style.dpDims.dropFirst()))
+        let styleTTL = try makeFloat(
+            values: style.ttlValues, shape: [1] + Array(style.ttlDims.dropFirst()), slack: slack)
+        let styleDP = try makeFloat(
+            values: style.dpValues, shape: [1] + Array(style.dpDims.dropFirst()), slack: slack)
 
         // --- Stage 1: duration_predictor --- //
         let dpOut = try await predict(
@@ -202,6 +273,9 @@ struct Supertonic3Synthesizer {
         // overrun — the caller re-splits at the 128-token window and the pieces
         // fit — rather than letting CoreML reject the bind, which nothing
         // upstream can recover from.
+        if let cap = options.maximumLatentSlots, trueLen > cap {
+            throw LatentOverCap(slots: trueLen, cap: cap)
+        }
         guard trueLen <= Supertonic3Constants.dynamicLatentSlotCeiling else {
             throw Supertonic3Error.tierUnavailable(
                 reason: "a \(trueLen)-slot latent exceeds the "
@@ -226,12 +300,14 @@ struct Supertonic3Synthesizer {
         let veMaskFlat =
             veLen == trueLen ? latentMaskFlat : Self.padTail(latentMaskFlat, toLen: veLen)
 
-        var noisyLatent = try makeFloat(values: noisyFlat, shape: veLatentShape)
-        let latentMask = try makeFloat(values: veMaskFlat, shape: [latentDims.bsz, 1, veLen])
+        var noisyLatent = try makeFloat(values: noisyFlat, shape: veLatentShape, slack: slack)
+        let latentMask = try makeFloat(
+            values: veMaskFlat, shape: [latentDims.bsz, 1, veLen], slack: slack)
+        var constantPerStep: [Int] = []
 
         for step in 0..<totalSteps {
-            let currentStep = try makeFloat(values: [Float(step)], shape: [1])
-            let totalStep = try makeFloat(values: [Float(totalSteps)], shape: [1])
+            let currentStep = try makeFloat(values: [Float(step)], shape: [1], slack: slack)
+            let totalStep = try makeFloat(values: [Float(totalSteps)], shape: [1], slack: slack)
 
             let denoisedOut = try await predict(
                 stage: "vector_estimator",
@@ -251,8 +327,31 @@ struct Supertonic3Synthesizer {
                 throw Supertonic3Error.inferenceFailed(
                     stage: "vector_estimator", underlying: "missing 'denoised_latent' output")
             }
-            // Rebind without recopying when the shape and dtype already match.
-            noisyLatent = try reshape(denoised, to: veLatentShape)
+            if slack > 0 {
+                noisyLatent = try makeFloat(
+                    values: Supertonic3MultiArray.extractFloats(denoised),
+                    shape: veLatentShape, slack: slack)
+            } else {
+                // Rebind without recopying when the shape and dtype already match.
+                noisyLatent = try reshape(denoised, to: veLatentShape)
+            }
+            if options.latentReport != nil {
+                constantPerStep.append(
+                    Supertonic3LatentTools.leadingRun(
+                        in: Supertonic3MultiArray.extractFloats(noisyLatent),
+                        channels: channels, length: veLen, zero: false))
+            }
+        }
+        if let report = options.latentReport {
+            let final = Supertonic3MultiArray.extractFloats(noisyLatent)
+            report(
+                Supertonic3LatentReport(
+                    latentSlots: trueLen, textTokens: tokenLength, textBucket: textLen,
+                    leadingConstantSlots: Supertonic3LatentTools.leadingRun(
+                        in: final, channels: channels, length: veLen, zero: false),
+                    leadingZeroSlots: Supertonic3LatentTools.leadingRun(
+                        in: final, channels: channels, length: veLen, zero: true),
+                    leadingConstantSlotsPerStep: constantPerStep))
         }
 
         // Drop the padding before the vocoder — but only down to the vocoder's
@@ -270,20 +369,27 @@ struct Supertonic3Synthesizer {
             let trimmed = Self.trimRows(
                 denoisedFlat, channels: channels, fromLen: veLen, toLen: vocoderLen)
             vocoderLatent = try makeFloat(
-                values: trimmed, shape: [latentDims.bsz, channels, vocoderLen])
+                values: trimmed, shape: [latentDims.bsz, channels, vocoderLen], slack: slack)
         }
 
         // --- Stage 4: vocoder --- //
-        let vocoderOut = try await predict(
-            stage: "vocoder",
-            model: await store.vocoder(),
-            inputs: ["latent": MLFeatureValue(multiArray: vocoderLatent)])
-        guard let wavArray = vocoderOut.featureValue(for: "wav")?.multiArrayValue else {
-            throw Supertonic3Error.inferenceFailed(
-                stage: "vocoder", underlying: "missing 'wav' output")
+        let vocoder = try await store.vocoder()
+        let wavSamples: [Float]
+        if let window = options.vocoderWindowSlots, vocoderLen > window {
+            let samplesPerSlot = cfg.ae.baseChunkSize * cfg.ttl.chunkCompressFactor
+            wavSamples = try await Supertonic3LatentTools.windowedVocode(
+                latent: Supertonic3MultiArray.extractFloats(vocoderLatent),
+                channels: channels, length: vocoderLen, windowSlots: window,
+                samplesPerSlot: samplesPerSlot
+            ) { piece, pieceLength in
+                let input = try makeFloat(
+                    values: piece, shape: [latentDims.bsz, channels, pieceLength], slack: slack)
+                return try await self.vocode(vocoder, input)
+            }
+        } else {
+            wavSamples = try await self.vocode(vocoder, vocoderLatent)
         }
 
-        let wavSamples = Supertonic3MultiArray.extractFloats(wavArray)
         let firstDuration = durations.first ?? 0
         let trimLen = min(wavSamples.count, Int(Float(cfg.ae.sampleRate) * firstDuration))
         let trimmed = trimLen > 0 ? Array(wavSamples.prefix(trimLen)) : wavSamples
@@ -291,6 +397,17 @@ struct Supertonic3Synthesizer {
     }
 
     // MARK: - CoreML plumbing
+
+    private func vocode(_ vocoder: MLModel, _ latent: MLMultiArray) async throws -> [Float] {
+        let out = try await predict(
+            stage: "vocoder", model: vocoder,
+            inputs: ["latent": MLFeatureValue(multiArray: latent)])
+        guard let wav = out.featureValue(for: "wav")?.multiArrayValue else {
+            throw Supertonic3Error.inferenceFailed(
+                stage: "vocoder", underlying: "missing 'wav' output")
+        }
+        return Supertonic3MultiArray.extractFloats(wav)
+    }
 
     private func predict(
         stage: String, model: MLModel, inputs: [String: MLFeatureValue]
@@ -316,8 +433,12 @@ struct Supertonic3Synthesizer {
         }
     }
 
-    private func makeFloat(values: [Float], shape: [Int]) throws -> MLMultiArray {
+    private func makeFloat(values: [Float], shape: [Int], slack: Int = 0) throws -> MLMultiArray {
         do {
+            if slack > 0 {
+                return try Supertonic3MultiArray.makeWithSlack(
+                    values, shape: shape, dataType: .float32, tailSlackBytes: slack)
+            }
             return try Supertonic3MultiArray.makeFloat32(values, shape: shape)
         } catch {
             throw Supertonic3Error.invalidTensorShape(
@@ -359,8 +480,12 @@ struct Supertonic3Synthesizer {
         return flat + [Float](repeating: 0, count: toLen - flat.count)
     }
 
-    private func makeInt32(values: [Int32], shape: [Int]) throws -> MLMultiArray {
+    private func makeInt32(values: [Int32], shape: [Int], slack: Int = 0) throws -> MLMultiArray {
         do {
+            if slack > 0 {
+                return try Supertonic3MultiArray.makeWithSlack(
+                    values, shape: shape, dataType: .int32, tailSlackBytes: slack)
+            }
             return try Supertonic3MultiArray.makeInt32(values, shape: shape)
         } catch {
             throw Supertonic3Error.invalidTensorShape(
@@ -386,4 +511,10 @@ struct Supertonic3Synthesizer {
         let values = Supertonic3MultiArray.extractFloats(array)
         return try Supertonic3MultiArray.makeFloat32(values, shape: shape)
     }
+}
+
+/// A chunk whose predicted latent runs past `maximumLatentSlots`.
+private struct LatentOverCap: Error {
+    let slots: Int
+    let cap: Int
 }

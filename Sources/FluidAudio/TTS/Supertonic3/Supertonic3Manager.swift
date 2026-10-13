@@ -111,13 +111,16 @@ public actor Supertonic3Manager {
     ///   - silenceDuration: Silence inserted between chunks when the text
     ///     is split into multiple chunks. Default 0.05 s — see
     ///     `Supertonic3Constants.defaultSilenceDuration`.
+    ///   - options: Switches for testing ways around device faults; the
+    ///     default is the production path.
     public func synthesize(
         text: String,
         language: String,
         style: Supertonic3VoiceStyle,
         totalSteps: Int = Supertonic3Constants.defaultTotalSteps,
         speed: Float = Supertonic3Constants.defaultSpeed,
-        silenceDuration: Float = Supertonic3Constants.defaultSilenceDuration
+        silenceDuration: Float = Supertonic3Constants.defaultSilenceDuration,
+        options: Supertonic3SynthesisOptions = .standard
     ) async throws -> (samples: [Float], duration: Float) {
         guard let synthesizer = synthesizer else {
             throw Supertonic3Error.notInitialized
@@ -125,7 +128,7 @@ public actor Supertonic3Manager {
         return try await synthesizer.synthesize(
             text: text, language: language, style: style,
             totalSteps: totalSteps, speed: speed,
-            silenceDuration: silenceDuration)
+            silenceDuration: silenceDuration, options: options)
     }
 
     public func cleanup() async {
