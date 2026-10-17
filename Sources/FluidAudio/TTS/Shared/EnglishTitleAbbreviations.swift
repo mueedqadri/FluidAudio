@@ -39,10 +39,36 @@ enum EnglishTitleAbbreviations {
     static let inlineIPA: [String: String] = ["miz": "mˈɪz"]
 
     /// The spoken expansion for a merged title token (`"Mr."`), or `nil`
-    /// when the token is not a title abbreviation.
+    /// when the token is not a title abbreviation. An initial (`"J."`) reads
+    /// as its letter.
     static func expansion(forTitleToken token: String) -> String? {
         guard token.hasSuffix(".") else { return nil }
-        return expansions[String(token.dropLast())]
+        let word = String(token.dropLast())
+        return expansions[word] ?? (isInitial(word) ? word : nil)
+    }
+
+    /// Whether the initial before `periodIndex` starts a name (`J. Smith`,
+    /// `Andrew J. Ballard`) rather than ending one written surname first
+    /// (`Söding, J.`, `Eddy, S. R.`: a capitalized word and a comma), where a
+    /// reference list's title follows.
+    private static func continuesName(beforeInitial word: String, in text: String, periodIndex: String.Index) -> Bool {
+        let wordStart = text.index(periodIndex, offsetBy: -word.count)
+        let earlier = text[..<wordStart].split(whereSeparator: \.isWhitespace)
+        let before = earlier.reversed().first { token in
+            !(token.count == 2 && token.hasSuffix(".") && token.first?.isUppercase == true)
+        }
+        guard let before else { return true }
+        // `1.4 Å.` is a unit (a number right before it); `Söding, J.` ends a surname-first name.
+        if before.contains(where: \.isNumber), !before.hasSuffix(",") { return false }
+        return !(before.hasSuffix(",") && before.first?.isUppercase == true)
+    }
+
+    /// A name's initial (`J` of `J. Smith`), which keeps its period like a
+    /// title so it never pauses. `I`, `V` and `X` are left out: as Roman
+    /// numerals they end sentences and headings (`World War I.`, `Part X.`).
+    static func isInitial(_ word: String) -> Bool {
+        word.count == 1 && !["I", "V", "X"].contains(word)
+            && word.first.map { $0.isUppercase && $0.isLetter } == true
     }
 
     /// Whether `word` + `"."` should merge into one token: `word` is a
@@ -54,7 +80,11 @@ enum EnglishTitleAbbreviations {
         in text: String,
         periodIndex: String.Index
     ) -> Bool {
-        guard expansions[word] != nil else { return false }
+        if isInitial(word) {
+            guard continuesName(beforeInitial: word, in: text, periodIndex: periodIndex) else { return false }
+        } else if expansions[word] == nil {
+            return false
+        }
         var index = text.index(after: periodIndex)
         while index < text.endIndex, text[index].isWhitespace {
             index = text.index(after: index)

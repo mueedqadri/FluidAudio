@@ -97,6 +97,58 @@ final class EnglishSpokenTextTests: XCTestCase {
         XCTAssertEqual(spoken("Then F♯ minor."), "Then F sharp minor.")
     }
 
+    // MARK: - Reference abbreviations
+
+    func testReferenceWordsBeforeANumber() {
+        XCTAssertTrue(spoken("As shown in Fig. 3 and Eq. (2), it holds.").contains("figure three and equation (two)"))
+        XCTAssertTrue(spoken("See Sec. 4.2 and Ch. 5 now.").contains("section four point two and chapter five"))
+        XCTAssertTrue(spoken("Read pp. 45-67 and p. 9 first.").contains("pages forty five to sixty seven and page nine"))
+        XCTAssertTrue(spoken("Published in vol. 21, no. 140 then.").contains("volume twenty one, number one hundred forty"))
+    }
+
+    func testReferenceWordsElsewhereStay() {
+        XCTAssertEqual(spoken("No. I will not."), "No. I will not.")
+        XCTAssertEqual(spoken("The fig. tree grew."), "The fig. tree grew.")
+    }
+
+    func testLatinAbbreviations() {
+        XCTAssertEqual(
+            spoken("The method, i.e. descent, works, e.g. on images."),
+            "The method, that is descent, works, for example on images.")
+        XCTAssertEqual(spoken("Compare it, cf. Table 2."), "Compare it, compare Table two.")
+        XCTAssertEqual(spoken("Shown by Smith et al. last year."), "Shown by Smith et al last year.")
+        XCTAssertEqual(spoken("Shown by Smith et al. The end."), "Shown by Smith et al. The end.")
+    }
+
+    func testEditorsEditionsAndUnits() {
+        XCTAssertTrue(spoken("In: Jones, A. (Ed.), Handbook, 2nd ed. today.").contains("(editor), Handbook, second edition"))
+        XCTAssertTrue(spoken("Training took 3.5 hrs total.").contains("three point five hours"))
+        XCTAssertTrue(spoken("It took 1 hr here.").contains("one hour"))
+        XCTAssertTrue(spoken("(Devlin et al., 2019b) agree.").contains("twenty nineteen B"))
+    }
+
+    func testInitialsKeepTheirPeriodButRomanNumeralsDoNot() {
+        func merges(_ word: String, in text: String) -> Bool {
+            let period = text.firstIndex(of: ".")!
+            return EnglishTitleAbbreviations.mergesPeriod(afterWord: word, in: text, periodIndex: period)
+        }
+        XCTAssertTrue(merges("J", in: "J. Smith"))
+        XCTAssertEqual(EnglishTitleAbbreviations.expansion(forTitleToken: "J."), "J")
+        XCTAssertFalse(merges("I", in: "I. The war"))
+        XCTAssertFalse(merges("X", in: "X. Section"))
+        XCTAssertFalse(merges("J", in: "J. and"))
+        func mergesLast(_ text: String) -> Bool {
+            let period = text.lastIndex(of: ".")!
+            let word = String(text[text.index(before: period)])
+            return EnglishTitleAbbreviations.mergesPeriod(afterWord: word, in: text, periodIndex: period)
+        }
+        XCTAssertTrue(mergesLast("Andrew J. Ballard"))
+        XCTAssertFalse(mergesLast("Steinegger, M. & Söding, J. Protein"))
+        XCTAssertFalse(mergesLast("Eddy, S. R. Accelerated"))
+        XCTAssertFalse(mergesLast("approximately 1.4 Å. In addition"))
+        XCTAssertTrue(mergesLast("On October 3, 1919, M. Bilinski"))
+    }
+
     // MARK: - Segment merging
 
     private typealias Segment = KokoroAneEnglishPhonemizer.PhonemeSegment

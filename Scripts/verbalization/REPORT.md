@@ -136,3 +136,27 @@ Expression 29 → 40, Musical Notation 17 → 40, Time 36 → 40. No type went
 down. Prose check against MAC-938: 13 changed spans in 2,382 paragraphs,
 all page and date ranges, clock ranges, mixed numbers ("eight and one
 half") and one "equals".
+
+## Paper abbreviations (MAC-940)
+
+`EnglishReferenceAbbreviations.spell` runs first in the same pass: before a
+number, Fig./Figs., Eq., Sec., Ch., p./pp., vol., no., Ref., Tab., Thm., Ex.
+read as their words; anywhere, i.e. → "that is", e.g. → "for example",
+cf. → "compare", viz., vs., approx., Proc.; `et al.` drops its period
+mid-sentence; (Ed.) → "editor", "2nd ed." → "edition"; hrs, mins, secs after
+a number; `2019b` → "twenty nineteen B". `et` and `ibid` get their sounds in
+the phonemizer instead of the G2P guess.
+
+The scorer's IPA placeholder held a digit, which the number pass rewrote
+from MAC-938 on, so "et al." items failed whatever was read; it is letters
+only now, and the MAC-939 papers figure was understated by it.
+
+| Set | After MAC-939 | After MAC-940 |
+| --- | --- | --- |
+| dograh | 725 | **725** (693 exact) |
+| papers | 9 | **22 of 22** |
+
+Prose check against MAC-939: 3 changed spans in 2,382 paragraphs: "No. 249"
+→ "number two forty nine", "(i.e. excluding" → "that is excluding", and
+Gatsby's dialect "I et like a hog", where "et" (ate) now reads "ɛt" instead
+of the G2P guess.

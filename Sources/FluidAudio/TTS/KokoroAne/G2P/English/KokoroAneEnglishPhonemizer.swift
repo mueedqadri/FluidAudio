@@ -386,6 +386,11 @@ struct KokoroAneEnglishPhonemizer: Sendable {
             }
         }
 
+        // Latin the lexicon lacks (`et` of `et al.`), which BART would sound out.
+        if let ipa = EnglishReferenceAbbreviations.latinIPA[normalized] {
+            return ipa
+        }
+
         guard !normalized.isEmpty else { return nil }
         // Misaki's BART fallback receives the original-cased spelling (with
         // typographic apostrophes normalized) — the grapheme vocabulary is
