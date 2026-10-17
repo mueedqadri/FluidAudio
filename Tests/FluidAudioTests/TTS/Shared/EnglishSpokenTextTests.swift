@@ -3,16 +3,16 @@ import XCTest
 
 @testable import FluidAudio
 
-/// NeMo text normalization limited to written words with a digit, and the
-/// spoken words tied back to the written ones for word timings.
+/// NeMo text normalization over whole sentences, our rules for what it
+/// misreads, and the spoken words tied back to the written ones for word timings.
 final class EnglishSpokenTextTests: XCTestCase {
 
     private func spoken(_ text: String) -> String {
         EnglishTextNormalizer.spokenText(text).text
     }
 
-    func testTextWithoutDigitsIsReturnedAsWritten() {
-        let text = "“Take ’em downstairs,” said Mr. Gatsby to Mrs. Wilson."
+    func testPlainProseIsReturnedAsWritten() {
+        let text = "It was a quiet evening, and nobody spoke."
         let result = EnglishTextNormalizer.spokenText(text)
         XCTAssertEqual(result.text, text)
         XCTAssertTrue(result.expansions.isEmpty)
@@ -24,13 +24,34 @@ final class EnglishSpokenTextTests: XCTestCase {
         XCTAssertEqual(spoken("It was 1999 then."), "It was nineteen ninety nine then.")
     }
 
-    func testRewritesWithoutADigitStayAsWritten() {
+    func testNeMoReadsWordsWithoutADigit() {
+        let result = EnglishTextNormalizer.spokenText("In 1915, Mr. Gatsby met Mrs. Wilson.")
+        XCTAssertEqual(result.text, "In nineteen fifteen, mister Gatsby met misses Wilson.")
+        XCTAssertEqual(result.expansions.map(\.source), ["1915,", "Mr.", "Mrs."])
+        XCTAssertEqual(spoken("She tagged @alice_maya today."), "She tagged at alice underscore maya today.")
         XCTAssertEqual(
-            spoken("In 1915, Mr. Gatsby met Mrs. Wilson."),
-            "In nineteen fifteen, Mr. Gatsby met Mrs. Wilson.")
-        XCTAssertEqual(
-            spoken("“Take ’em downstairs,” he said in 1922."),
-            "“Take ’em downstairs,” he said in nineteen twenty two.")
+            spoken("Email jane.doe@example.com today."), "Email jane dot doe at example dot com today.")
+        XCTAssertEqual(spoken("It ended in World War II."), "It ended in World War two.")
+    }
+
+    func testSentenceKeepsTheFullStopAnAbbreviationShares() {
+        XCTAssertEqual(spoken("We met at 5 p.m."), "We met at five p.m.")
+        XCTAssertEqual(spoken("They live at No. 7 Elm St."), "They live at number seven Elm Street.")
+    }
+
+    func testFormsNeMoMisreadsAreHeldBack() {
+        XCTAssertEqual(spoken("She works for AT&T."), "She works for AT&T.")
+        XCTAssertEqual(spoken("A. M. Turing proved it."), "A. M. Turing proved it.")
+        XCTAssertEqual(spoken("The AM radio was on."), "The AM radio was on.")
+        XCTAssertEqual(spoken("See it, cf. the rest."), "See it, compare the rest.")
+        XCTAssertEqual(spoken("It took 3 hrs."), "It took three hours.")
+        XCTAssertEqual(spoken("Plates, etc. and cups."), "Plates, etc. and cups.")
+        XCTAssertEqual(spoken("Bring a pen and/or a pencil (he/she)."), "Bring a pen and/or a pencil (he/she).")
+        XCTAssertEqual(spoken("About 2/5 of them came."), "About two fifths of them came.")
+        XCTAssertEqual(spoken("The _War_ ended. * * *"), "The _War_ ended. * * *")
+        XCTAssertEqual(spoken("Stamp (_Journal_, 1920)."), "Stamp (_Journal_, nineteen twenty).")
+        XCTAssertEqual(spoken("| 175 | 395 |"), "| one hundred seventy five | three hundred ninety five |")
+        XCTAssertEqual(spoken("Up at 6:00 a.m. today."), "Up at six o'clock a.m. today.")
     }
 
     func testNumbersDropTheBritishAnd() {

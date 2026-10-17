@@ -17,32 +17,57 @@ struct EnglishSpokenText: Sendable, Equatable {
 
 extension EnglishTextNormalizer {
 
-    /// `text` with its numbers and symbols in spoken form.
+    /// `text` with its numbers, symbols and abbreviations in spoken form.
     ///
-    /// NeMo reads the whole sentence, so a number keeps its context (`26 kg`,
-    /// `Oct 10`, `$4.50`), but only its rewrites of written words that contain
-    /// a digit are kept. Everything else NeMo would change (`Mr.` → `mister`,
-    /// the space it drops before a quote mark) stays as written, and text
-    /// without a digit never reaches it. Our own rules for what NeMo misses
+    /// NeMo reads the whole sentence and every rewrite it makes is kept, so a
+    /// number keeps its context (`26 kg`, `Oct 10`, `$4.50`) and titles,
+    /// emails and web addresses read as words. Our own rules
     /// (``EnglishReferenceAbbreviations/spell(_:)``, then
-    /// ``spellRangesAndSymbols(_:)``) run first; digits NeMo leaves alone go
-    /// through ``normalize(_:)``.
+    /// ``spellRangesAndSymbols(_:)``) run first and hold the forms NeMo
+    /// misreads or leaves silent (`cf.`, `hrs`, `2019b`, ranges, `±`, `×`);
+    /// digits NeMo leaves alone go through ``normalize(_:)``.
     static func spokenText(_ text: String) -> EnglishSpokenText {
-        guard text.contains(where: { $0.isASCIIDigit || $0 == "." || spokenSymbols.contains($0) }) else {
-            return EnglishSpokenText(text: text, expansions: [])
-        }
         var pieces = text.split(whereSeparator: \.isWhitespace).map { Piece(text: String($0), source: nil) }
-        pieces = rewrite(
-            pieces,
-            with: { spellRangesAndSymbols(EnglishReferenceAbbreviations.spell($0)) },
-            keepingOnlyDigitRewrites: false)
-        pieces = rewrite(pieces) {
+        pieces = rewrite(pieces, keepingOnlyDigitRewrites: false) {
+            spellRangesAndSymbols(EnglishReferenceAbbreviations.spell($0))
+        }
+        pieces = rewrite(pieces, keepingOnlyDigitRewrites: false, when: nemoMayRead, holding: nemoMisreads) {
             // NeMo reads `=` as "equal sign" when a percent sits on its left.
             NemoTextNormalizer.normalize($0, language: .english)
                 .replacingOccurrences(of: "equal sign", with: "equals")
         }
         pieces = rewrite(pieces, with: normalize)
+        // NeMo drops the full stop an abbreviation shares with the sentence (`5 p.m.` → `five PM`).
+        if let last = pieces.last, let source = last.source, source.hasSuffix("."),
+            let end = last.text.last, !".!?".contains(end)
+        {
+            pieces[pieces.count - 1] = Piece(text: last.text + ".", source: source)
+        }
         return assemble(pieces)
+    }
+
+    /// Written words NeMo may read differently: a digit, a symbol, a dotted
+    /// form (`e.g.`, `U.S.`, `jane.doe`), a short capitalized abbreviation
+    /// (`Mr.`, `St.`, `Gen.`) or a capitalized run (`NASA`, `VIII`). A stretch
+    /// with none of them skips NeMo, which costs tens of milliseconds a sentence.
+    private static func nemoMayRead(_ word: String) -> Bool {
+        word.contains(where: { $0.isASCIIDigit || "@#&$%€£¥+=/<>×±°§~^".contains($0) })
+            || word.range(
+                of: #"[A-Za-z]\.[A-Za-z]|^\W*[A-Z][a-z]{0,3}\.|[A-Z]{2,}"#, options: .regularExpression) != nil
+    }
+
+    /// Written words NeMo reads wrongly: `AT&T` → `ATANDT`, initials and
+    /// `a.m.` it joins into a word the lexicon reads as the verb (`A. M.
+    /// Turing`, `6 a.m.` → `AM`), `etc.` as one word the lexicon lacks, a
+    /// slash between words (`and/or` → `and slash or`), and markup it names
+    /// aloud (`_War_`, `*`, `|`, `----+----`). The phonemizer reads each of
+    /// them as it did before NeMo.
+    private static func nemoMisreads(_ word: String) -> Bool {
+        word.contains(where: { "*|".contains($0) })
+            || word.range(of: #"(?:^|[^A-Za-z0-9])_|_(?:$|[^A-Za-z0-9])"#, options: .regularExpression) != nil
+            || word.range(
+                of: #"^\W*(?:[A-Z]+&[A-Z]+|[A-Z]\.|[AaPp]\.[Mm]\.|[Ee]tc\.|[-+=~]{2,}|[A-Za-z]+(?:/[A-Za-z]+)+)\W*$"#,
+                options: .regularExpression) != nil
     }
 
     /// A whitespace-separated piece of the output; `source` is set when it is
@@ -52,23 +77,26 @@ extension EnglishTextNormalizer {
         let source: String?
     }
 
-    /// Symbols ``spellRangesAndSymbols(_:)`` may read in text without a digit.
-    private static let spokenSymbols: Set<Character> = ["♭", "♯"]
-
-    /// Run `rewriter` over each stretch of untouched pieces. NeMo's rewrites
-    /// are kept only where the written side holds a digit; our own rules are
-    /// exact and keep every rewrite.
+    /// Run `rewriter` over each stretch of untouched pieces. With
+    /// `keepingOnlyDigitRewrites`, only stretches holding a digit are read
+    /// and only rewrites of written words with a digit are kept, which is
+    /// how the ``normalize(_:)`` fallback runs. A stretch is read only when
+    /// a word in it passes `when`; pieces `holding` accepts pass through unread.
     private static func rewrite(
         _ pieces: [Piece],
-        with rewriter: (String) -> String,
-        keepingOnlyDigitRewrites: Bool = true
+        keepingOnlyDigitRewrites: Bool = true,
+        when needsReading: (String) -> Bool = { _ in true },
+        holding: (String) -> Bool = { _ in false },
+        with rewriter: (String) -> String
     ) -> [Piece] {
         var result: [Piece] = []
         var stretch: [String] = []
 
         func flush() {
             defer { stretch.removeAll() }
-            guard !keepingOnlyDigitRewrites || stretch.contains(where: { $0.contains(where: \.isASCIIDigit) }) else {
+            guard stretch.contains(where: needsReading),
+                !keepingOnlyDigitRewrites || stretch.contains(where: { $0.contains(where: \.isASCIIDigit) })
+            else {
                 result += stretch.map { Piece(text: $0, source: nil) }
                 return
             }
@@ -82,20 +110,26 @@ extension EnglishTextNormalizer {
                     result += hunk.written.map { Piece(text: $0, source: nil) }
                     continue
                 }
-                let trimmed = keepingOnlyDigitRewrites
-                    ? trimmingStandaloneRewrites(hunk, with: rewriter)
-                    : (before: [], written: hunk.written, spoken: hunk.spoken, after: [])
-                result += trimmed.before.map { Piece(text: $0, source: nil) }
+                // An edge word that reads the same alone is its own piece, so word
+                // timings keep one written word per span (`1915, Mr.`); the digit-only
+                // fallback leaves it as written.
+                let trimmed = trimmingStandaloneRewrites(hunk, with: rewriter)
+                func edge(_ word: (written: String, spoken: [String])) -> Piece {
+                    keepingOnlyDigitRewrites
+                        ? Piece(text: word.written, source: nil)
+                        : Piece(text: word.spoken.joined(separator: " "), source: word.written)
+                }
+                result += trimmed.before.map(edge)
                 result.append(
                     Piece(
                         text: americanNumberStyle(trimmed.spoken),
                         source: trimmed.written.joined(separator: " ")))
-                result += trimmed.after.map { Piece(text: $0, source: nil) }
+                result += trimmed.after.map(edge)
             }
         }
 
         for piece in pieces {
-            if piece.source == nil {
+            if piece.source == nil, !holding(piece.text) {
                 stretch.append(piece.text)
             } else {
                 flush()
@@ -106,17 +140,21 @@ extension EnglishTextNormalizer {
         return result
     }
 
-    /// Hands back a changed region's edge words that `rewriter` changes on
-    /// their own, with no number beside them: `Mr.` → `mister` next to `1915,`
-    /// is a title, while `kg` next to `26` only changes with its number.
+    /// Hands back, with their spoken words, a changed region's edge words that
+    /// `rewriter` changes the same way on their own, with no number beside
+    /// them: `Mr.` → `mister` next to `1915,` is a title, while `kg` next to
+    /// `26` only changes with its number.
     private static func trimmingStandaloneRewrites(
         _ hunk: (written: [String], spoken: [String]),
         with rewriter: (String) -> String
-    ) -> (before: [String], written: [String], spoken: [String], after: [String]) {
+    ) -> (
+        before: [(written: String, spoken: [String])], written: [String], spoken: [String],
+        after: [(written: String, spoken: [String])]
+    ) {
         var written = hunk.written
         var spoken = hunk.spoken
-        var before: [String] = []
-        var after: [String] = []
+        var before: [(written: String, spoken: [String])] = []
+        var after: [(written: String, spoken: [String])] = []
 
         func standaloneRewrite(_ word: String) -> [String]? {
             guard !word.contains(where: \.isASCIIDigit), word.contains(where: \.isLetter) else { return nil }
@@ -127,14 +165,14 @@ extension EnglishTextNormalizer {
         while written.count > 1, let first = written.first, let alone = standaloneRewrite(first),
             spoken.starts(with: alone), spoken.count > alone.count
         {
-            before.append(first)
+            before.append((first, alone))
             written.removeFirst()
             spoken.removeFirst(alone.count)
         }
         while written.count > 1, let last = written.last, let alone = standaloneRewrite(last),
             spoken.reversed().starts(with: alone.reversed()), spoken.count > alone.count
         {
-            after.insert(last, at: 0)
+            after.insert((last, alone), at: 0)
             written.removeLast()
             spoken.removeLast(alone.count)
         }

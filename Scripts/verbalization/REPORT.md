@@ -160,3 +160,36 @@ Prose check against MAC-939: 3 changed spans in 2,382 paragraphs: "No. 249"
 → "number two forty nine", "(i.e. excluding" → "that is excluding", and
 Gatsby's dialect "I et like a hog", where "et" (ate) now reads "ɛt" instead
 of the G2P guess.
+
+## NeMo on whole sentences (MAC-994)
+
+NeMo's rewrites are no longer limited to written words with a digit: it
+reads titles ("Mr." → "mister", "St." → "Saint"), emails, @mentions, "&"
+and "World War II" too. Our own rules still run first and hold the forms
+NeMo misreads. A short list of written words never reaches NeMo, because it
+reads them worse than the phonemizer does: "AT&T" ("ATANDT"), single initials
+and "a.m." (joined into "AM", read as the verb), "etc." ("etcetera", not in
+the lexicon), "and/or" ("and slash or"), and markup it names aloud ("_",
+"*", "|", "----"). A full stop NeMo drops at the end of a sentence
+("5 p.m." → "five PM") is put back. A stretch reaches NeMo only when a word
+in it could change (a digit, a symbol, a dotted or short capitalized
+abbreviation, a capitalized run); across Gatsby and Keynes that is 31,363
+words against 26,381 under the digit rule.
+
+| Set | After MAC-940 | After MAC-994 |
+| --- | --- | --- |
+| dograh | 725 | **780** (748 exact) |
+| papers | 22 of 22 | **22 of 22** |
+
+By type: URL or Email 0 → 32, Hashtag or Mention 0 → 20, Abbreviation
+35 → 38. No type went down. The scorer phonemizes its reference readings
+with the same frontend, so a reference spelled with initials ("N. A. T. O.")
+is read through the same holds.
+
+Prose check against MAC-940: 262 changed spans in 2,382 paragraphs. 229 are
+Keynes's tables, whose "|" borders NeMo read as "vertical bar" whenever a
+cell held a number; they are silent now. The rest: titles ("mister",
+"misses", "Saint Olaf's", "Saint Paul"), dotted initials read as letters
+("J.M.", "C.B."), Gutenberg's "_" italics no longer spoken, and footnote and
+money numbers read whole ("[115]" → "one hundred fifteen", "$525" → "five
+hundred twenty five dollars"; both were read in pieces before).
