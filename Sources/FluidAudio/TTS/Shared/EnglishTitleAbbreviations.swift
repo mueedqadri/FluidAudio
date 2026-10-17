@@ -20,23 +20,11 @@ import Foundation
 /// `gen`/`rep` keep their terminal period.
 enum EnglishTitleAbbreviations {
 
-    /// Written form without the period → spoken expansion word. The
-    /// expansion resolves from the caller's lexicon; ``inlineIPA`` covers
-    /// the expansions the Misaki lexicon does not carry. `Mrs` maps to the
-    /// lexicon's own `mrs` entry (`mˈɪsɪz`) — canonical Misaki resolves the
-    /// stem, and the `missus` word entry carries a different vowel.
-    static let expansions: [String: String] = [
-        "Mr": "mister", "Mrs": "mrs", "Ms": "miz", "Mx": "mix",
-        "Dr": "doctor", "Prof": "professor", "Rev": "reverend", "Fr": "father",
-        "Hon": "honorable", "Adm": "admiral", "Brig": "brigadier",
-        "Capt": "captain", "Cmdr": "commander", "Col": "colonel",
-        "Gen": "general", "Gov": "governor", "Lt": "lieutenant",
-        "Maj": "major", "Pres": "president", "Rep": "representative",
-        "Sen": "senator", "Sgt": "sergeant", "Supt": "superintendent",
-    ]
-
-    /// Expansion words missing from the Misaki lexicon.
-    static let inlineIPA: [String: String] = ["miz": "mˈɪz"]
+    /// Written form without the period → spoken expansion word, from
+    /// ``EnglishAbbreviationTable``. The expansion resolves from the caller's
+    /// lexicon; ``EnglishPronunciations/ipa`` covers the expansions the Misaki
+    /// lexicon does not carry.
+    static let expansions = EnglishAbbreviationTable.spokenForms(in: .title)
 
     /// The spoken expansion for a merged title token (`"Mr."`), or `nil`
     /// when the token is not a title abbreviation. An initial (`"J."`) reads

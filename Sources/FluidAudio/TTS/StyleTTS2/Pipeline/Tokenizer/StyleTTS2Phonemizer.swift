@@ -100,7 +100,7 @@ public struct StyleTTS2Phonemizer: Sendable {
             //    Spell from the per-letter entries before the lexicon so they
             //    sound like `A I` / `U S` (issue #710). Lowercase `us`/`ai`
             //    are untouched — the override is exact-uppercase only.
-            if EnglishInitialisms.letterNameOverrides.contains(word),
+            if EnglishPronunciations.spelledAsLetters.contains(word),
                 let spelled = spellAsLetterNames(word)
             {
                 ipaParts.append(spelled)
@@ -108,7 +108,7 @@ public struct StyleTTS2Phonemizer: Sendable {
                 lexiconHits += 1
                 continue
             }
-            if EnglishInitialisms.letterNameOverrides.contains(word) {
+            if EnglishPronunciations.spelledAsLetters.contains(word) {
                 logger.notice(
                     "Letter-name override '\(word)' unspellable (missing per-letter lexicon "
                         + "entries); falling back to the bundled pronunciation")
