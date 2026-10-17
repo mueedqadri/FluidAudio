@@ -20,8 +20,9 @@ enum EnglishInitialisms {
     /// letter-name reading callers expect. These should bypass the Misaki
     /// lexicon and be spelled out from the per-letter entries instead.
     /// Lowercase `us`/`ai` are intentionally absent — only the exact
-    /// uppercase spelling is overridden.
-    static let letterNameOverrides: Set<String> = ["AI", "US"]
+    /// uppercase spelling is overridden. `AM` is the meridiem NeMo writes
+    /// (`5 a.m.` → `five AM`), not the verb.
+    static let letterNameOverrides: Set<String> = ["AI", "AM", "US"]
 
     /// Length bounds for spelling unknown all-caps tokens as letter names.
     private static let lengthRange = 2...5
