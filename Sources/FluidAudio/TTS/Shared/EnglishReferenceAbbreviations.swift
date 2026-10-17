@@ -10,18 +10,9 @@ import Foundation
 /// ``EnglishTitleAbbreviations``.
 enum EnglishReferenceAbbreviations {
 
-    /// Read before a number: written form without the period → words.
-    static let beforeNumber: [String: String] = [
-        "Fig": "figure", "fig": "figure", "Figs": "figures", "figs": "figures",
-        "Eq": "equation", "eq": "equation", "Eqs": "equations", "eqs": "equations",
-        "Sec": "section", "sec": "section", "Secs": "sections", "secs": "sections",
-        "Ch": "chapter", "ch": "chapter", "Chap": "chapter", "chap": "chapter",
-        "p": "page", "pp": "pages",
-        "Vol": "volume", "vol": "volume", "Vols": "volumes", "vols": "volumes",
-        "No": "number", "no": "number", "Nos": "numbers", "nos": "numbers",
-        "Ref": "reference", "ref": "reference", "Refs": "references", "refs": "references",
-        "Tab": "table", "tab": "table", "Thm": "theorem", "Ex": "example",
-    ]
+    /// Read before a number: written form without the period → words, from
+    /// ``EnglishAbbreviationTable``.
+    static let beforeNumber = EnglishAbbreviationTable.spokenForms(in: .beforeNumber)
 
     /// Latin words the Misaki lexicon lacks, which the G2P model would sound out.
     static let latinIPA: [String: String] = ["et": "ˈɛt", "ibid": "ˈɪbɪd"]
@@ -55,21 +46,9 @@ enum EnglishReferenceAbbreviations {
         return regex(#"(?<![A-Za-z.])("# + keys + #")\.\s*(?=\(?[0-9])"#)
     }()
 
-    /// Abbreviations read the same anywhere. `et al.` keeps its period only
-    /// where it ends a sentence, so it never pauses mid-sentence.
-    private static let phrases: [(NSRegularExpression, String)] = [
-        (regex(#"(?<![A-Za-z.])i\.\s?e\.(?=[\s,;:)]|$)"#), "that is"),
-        (regex(#"(?<![A-Za-z.])e\.\s?g\.(?=[\s,;:)]|$)"#), "for example"),
-        (regex(#"(?<![A-Za-z.])cf\."#), "compare"),
-        (regex(#"(?<![A-Za-z.])viz\."#), "namely"),
-        (regex(#"(?<![A-Za-z.])vs\."#), "versus"),
-        (regex(#"(?<![A-Za-z.])approx\."#), "approximately"),
-        (regex(#"(?<![A-Za-z.])Proc\."#), "proceedings"),
-        (regex(#"\bet\s+al\.(?!\s+[A-Z]|\s*$)"#), "et al"),
-        (regex(#"\((Ed)\.\)"#), "(editor)"),
-        (regex(#"\((Eds)\.\)"#), "(editors)"),
-        (regex(#"(?<=[0-9](?:st|nd|rd|th) )ed\."#), "edition"),
-    ]
+    /// Abbreviations read the same anywhere, from ``EnglishAbbreviationTable``.
+    private static let phrases: [(NSRegularExpression, String)] =
+        EnglishAbbreviationTable.anywherePatterns.map { (regex($0.pattern), $0.spoken) }
 
     /// `2019b`: the second 2019 work cited from one author, a year and a letter.
     private static let letteredYearRegex = regex(
