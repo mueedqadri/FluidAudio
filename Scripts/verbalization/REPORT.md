@@ -193,3 +193,26 @@ cell held a number; they are silent now. The rest: titles ("mister",
 ("J.M.", "C.B."), Gutenberg's "_" italics no longer spoken, and footnote and
 money numbers read whole ("[115]" → "one hundred fifteen", "$525" → "five
 hundred twenty five dollars"; both were read in pieces before).
+
+## NeMo's abbreviations (MAC-1001)
+
+`abbreviation_map.py` reads every candidate through the linked grammars in
+five frame sentences (before a name, after a street name, in an address,
+before a number, alone). Candidates: NeMo's whitelist words that end in a
+period (39 of `tts.tsv`'s 3,890 rows; the rest are letter runs such as
+`A.D.` → AD and acronym casings), its 14 address words, and our table. The
+45 entries NeMo reads as words are generated into
+`EnglishAbbreviationTable+NeMo.swift`; a test round-trips each one through
+the engine. Nothing reads them yet (MAC-1002).
+
+| Kind | Entries | Decision |
+| --- | --- | --- |
+| Same reading | Capt., Col., Gen., Gov., Hon., Lt., Maj., Mr., Rev., Sgt., vs., e.g., i.e. (Maj./Rev. differ only in case) | none needed |
+| Different words | Mrs.: ours the lexicon's `mrs` (mˈɪsɪz), NeMo "misses", the same sound. Ms.: ours "miz", NeMo "miss" | keep ours; "Ms." is said "miz" |
+| NeMo only | apt., bldg., Co., dept., Drs., Esq., est., Ft. (Fort), Jr., Ltd., Mt. (Mount), prof., vol. anywhere | adopt |
+| NeMo only, by context | street words after a street name: Av./Ave., Blvd., Cir., Ct., Dr. (Drive), Expy., Fwy., Hwy., Jct., St. (Street); St. before a name (Saint) | adopt with the context |
+| NeMo misreads | etc. ("etcetera", not in the lexicon), cf. ("CF."), Eq. ("EQ."), hrs ("HRS"), (Eds.) ("ED's"), Adm. ("ADM.") | ours wins; Adm. is read letter by letter since MAC-994 and MAC-1002's table-first lookup fixes it |
+| Ours only (NeMo says nothing) | Brig., Cmdr., Fr., Mx., Pres., Prof., Rep., Sen., Supt.; Fig., Eq., Sec., Ch., p., pp., No., Ref., Tab., Thm., Ex., Vol. before a number; viz., approx., Proc., et al., (Ed.), ed.; mins, secs | keep ours |
+
+Behavior-neutral: dograh 780 and papers 22 of 22 per type, prose check 0
+changed spans.

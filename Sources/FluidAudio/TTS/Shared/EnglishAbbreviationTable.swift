@@ -19,6 +19,9 @@ enum EnglishAbbreviationTable {
             /// expression when the written form alone does not say where it
             /// may match.
             case anywhere(pattern: String?)
+            /// A street word after a street name in an address (`12 Elm Ave.`),
+            /// written without its period.
+            case streetSuffix
             /// A unit after a number (`3 hrs`), plural after any number but a
             /// lone `1`; `written` matches with or without `s` and a period.
             case afterNumber(singular: String)
