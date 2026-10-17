@@ -137,6 +137,16 @@ final class EnglishSpokenTextTests: XCTestCase {
         XCTAssertFalse(merges("I", in: "I. The war"))
         XCTAssertFalse(merges("X", in: "X. Section"))
         XCTAssertFalse(merges("J", in: "J. and"))
+        func mergesLast(_ text: String) -> Bool {
+            let period = text.lastIndex(of: ".")!
+            let word = String(text[text.index(before: period)])
+            return EnglishTitleAbbreviations.mergesPeriod(afterWord: word, in: text, periodIndex: period)
+        }
+        XCTAssertTrue(mergesLast("Andrew J. Ballard"))
+        XCTAssertFalse(mergesLast("Steinegger, M. & Söding, J. Protein"))
+        XCTAssertFalse(mergesLast("Eddy, S. R. Accelerated"))
+        XCTAssertFalse(mergesLast("approximately 1.4 Å. In addition"))
+        XCTAssertTrue(mergesLast("On October 3, 1919, M. Bilinski"))
     }
 
     // MARK: - Segment merging
