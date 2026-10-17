@@ -32,9 +32,12 @@ extension EnglishTextNormalizer {
             spellRangesAndSymbols(EnglishReferenceAbbreviations.spell($0))
         }
         pieces = rewrite(pieces, keepingOnlyDigitRewrites: false, when: nemoMayRead, holding: nemoMisreads) {
-            // NeMo reads `=` as "equal sign" when a percent sits on its left.
+            // NeMo reads `=` as "equal sign" when a percent sits on its left, and
+            // after a title it expands splits a possessive before punctuation
+            // (`St. James’s.` → `Saint James’ s.`).
             NemoTextNormalizer.normalize($0, language: .english)
                 .replacingOccurrences(of: "equal sign", with: "equals")
+                .replacingOccurrences(of: #"(?<=[A-Za-z][’'])\ss\b"#, with: "s", options: .regularExpression)
         }
         pieces = rewrite(pieces, with: normalize)
         // NeMo drops the full stop an abbreviation shares with the sentence (`5 p.m.` → `five PM`).
@@ -56,17 +59,18 @@ extension EnglishTextNormalizer {
                 of: #"[A-Za-z]\.[A-Za-z]|^\W*[A-Z][a-z]{0,3}\.|[A-Z]{2,}"#, options: .regularExpression) != nil
     }
 
-    /// Written words NeMo reads wrongly: `AT&T` → `ATANDT`, initials and
-    /// `a.m.` it joins into a word the lexicon reads as the verb (`A. M.
-    /// Turing`, `6 a.m.` → `AM`), `etc.` as one word the lexicon lacks, a
-    /// slash between words (`and/or` → `and slash or`), and markup it names
-    /// aloud (`_War_`, `*`, `|`, `----+----`). The phonemizer reads each of
-    /// them as it did before NeMo.
+    /// Written words NeMo reads wrongly: `AT&T` → `ATANDT`, initials it joins
+    /// into a word (`A. M. Turing` → `AM`), `etc.` as one word the lexicon lacks, a
+    /// slash between words (`and/or` → `and slash or`), a word it joins to the
+    /// one before (`to ’Frisco` → `to’Frisco`), and markup it names aloud
+    /// (`_War_`, `*`, `|`, `M^{rs}`, `mother.--Yours` and `Jan.-Mar.` → `dot
+    /// dash`). The phonemizer reads each of them as it did before NeMo.
     private static func nemoMisreads(_ word: String) -> Bool {
-        word.contains(where: { "*|".contains($0) })
+        word.contains(where: { "*|{}".contains($0) }) || word.contains("--") || word.contains(".-")
+            || word.range(of: #"^[‘’'][A-Za-z]"#, options: .regularExpression) != nil
             || word.range(of: #"(?:^|[^A-Za-z0-9])_|_(?:$|[^A-Za-z0-9])"#, options: .regularExpression) != nil
             || word.range(
-                of: #"^\W*(?:[A-Z]+&[A-Z]+|[A-Z]\.|[AaPp]\.[Mm]\.|[Ee]tc\.|[-+=~]{2,}|[A-Za-z]+(?:/[A-Za-z]+)+)\W*$"#,
+                of: #"^\W*(?:[A-Z]+&[A-Z]+|[A-Z]\.|[Ee]tc\.|[-+=~]{2,}|[A-Za-z]+(?:/[A-Za-z]+)+)\W*$"#,
                 options: .regularExpression) != nil
     }
 

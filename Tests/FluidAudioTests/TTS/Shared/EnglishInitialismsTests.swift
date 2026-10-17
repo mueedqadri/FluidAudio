@@ -57,6 +57,7 @@ final class EnglishInitialismsTests: XCTestCase {
     func testLetterNameOverridesAreUppercaseOnly() {
         XCTAssertTrue(EnglishInitialisms.letterNameOverrides.contains("AI"))
         XCTAssertTrue(EnglishInitialisms.letterNameOverrides.contains("US"))
+        XCTAssertTrue(EnglishInitialisms.letterNameOverrides.contains("AM"))
         XCTAssertFalse(EnglishInitialisms.letterNameOverrides.contains("ai"))
         XCTAssertFalse(EnglishInitialisms.letterNameOverrides.contains("us"))
     }

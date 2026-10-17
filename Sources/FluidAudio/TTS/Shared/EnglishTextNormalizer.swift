@@ -205,9 +205,12 @@ enum EnglishTextNormalizer {
     /// each reads.
     private static let symbolWords: [(NSRegularExpression, @Sendable ([String]) -> String?)] = [
         (regex(#"(?<![A-Za-z0-9.:])([0-9]{1,2}(?::[0-9]{2})?)\s?([AaPp])(?:M|m|\.M\.|\.m\.)(?![A-Za-z])"#), { groups in
+            // "six AM", as NeMo reads a whole time, not "six o'clock AM".
             let clock = NemoTextNormalizer.normalize(groups[1], language: .english)
+                .replacingOccurrences(of: " o'clock", with: "")
             guard !containsDigit(clock) else { return nil }
-            return "\(clock) \(groups[2].lowercased()).m."
+            // `AM`/`PM` read as letters without the pause each period of `a.m.` makes.
+            return "\(clock) \(groups[2].uppercased())M"
         }),
         (regex(#"(?<=[0-9%])\s*±\s*(?=[0-9])"#), { _ in " plus or minus " }),
         (regex(#"(?<![A-Za-z0-9.])([0-9]+(?:\.[0-9]+)?)\s*×"#), { groups in

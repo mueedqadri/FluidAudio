@@ -35,7 +35,7 @@ final class EnglishSpokenTextTests: XCTestCase {
     }
 
     func testSentenceKeepsTheFullStopAnAbbreviationShares() {
-        XCTAssertEqual(spoken("We met at 5 p.m."), "We met at five p.m.")
+        XCTAssertEqual(spoken("We met at 5 p.m."), "We met at five PM.")
         XCTAssertEqual(spoken("They live at No. 7 Elm St."), "They live at number seven Elm Street.")
     }
 
@@ -46,12 +46,16 @@ final class EnglishSpokenTextTests: XCTestCase {
         XCTAssertEqual(spoken("See it, cf. the rest."), "See it, compare the rest.")
         XCTAssertEqual(spoken("It took 3 hrs."), "It took three hours.")
         XCTAssertEqual(spoken("Plates, etc. and cups."), "Plates, etc. and cups.")
+        XCTAssertEqual(spoken("Do you dance at St. James’s?"), "Do you dance at Saint James’s?")
+        XCTAssertEqual(spoken("Love to her mother.--Yours, Mr. Collins."), "Love to her mother.--Yours, mister Collins.")
+        XCTAssertEqual(spoken("They came to ’Frisco with Mr. Wolfsheim."), "They came to ’Frisco with mister Wolfsheim.")
+        XCTAssertEqual(spoken("Exports for Jan.-Mar. fell."), "Exports for Jan.-Mar. fell.")
         XCTAssertEqual(spoken("Bring a pen and/or a pencil (he/she)."), "Bring a pen and/or a pencil (he/she).")
         XCTAssertEqual(spoken("About 2/5 of them came."), "About two fifths of them came.")
         XCTAssertEqual(spoken("The _War_ ended. * * *"), "The _War_ ended. * * *")
         XCTAssertEqual(spoken("Stamp (_Journal_, 1920)."), "Stamp (_Journal_, nineteen twenty).")
         XCTAssertEqual(spoken("| 175 | 395 |"), "| one hundred seventy five | three hundred ninety five |")
-        XCTAssertEqual(spoken("Up at 6:00 a.m. today."), "Up at six o'clock a.m. today.")
+        XCTAssertEqual(spoken("Up at 6:00 a.m. today."), "Up at six AM today.")
     }
 
     func testNumbersDropTheBritishAnd() {
@@ -103,7 +107,7 @@ final class EnglishSpokenTextTests: XCTestCase {
         XCTAssertTrue(spoken("It rose 93.4% ± 0.2 overall.").contains("plus or minus zero point two"))
         XCTAssertTrue(spoken("A 2× speedup.").contains("two times speedup"))
         XCTAssertTrue(spoken("Keep x ≥ 5 always.").contains("greater than or equal to five"))
-        XCTAssertTrue(spoken("Meet at 5 AM sharp.").contains("five a.m."))
+        XCTAssertTrue(spoken("Meet at 5 AM sharp.").contains("five AM"))
         XCTAssertTrue(spoken("The model has 1.3B parameters.").contains("one point three billion"))
     }
 
