@@ -127,6 +127,18 @@ final class EnglishSpokenTextTests: XCTestCase {
         XCTAssertTrue(spoken("(Devlin et al., 2019b) agree.").contains("twenty nineteen B"))
     }
 
+    func testInitialsKeepTheirPeriodButRomanNumeralsDoNot() {
+        func merges(_ word: String, in text: String) -> Bool {
+            let period = text.firstIndex(of: ".")!
+            return EnglishTitleAbbreviations.mergesPeriod(afterWord: word, in: text, periodIndex: period)
+        }
+        XCTAssertTrue(merges("J", in: "J. Smith"))
+        XCTAssertEqual(EnglishTitleAbbreviations.expansion(forTitleToken: "J."), "J")
+        XCTAssertFalse(merges("I", in: "I. The war"))
+        XCTAssertFalse(merges("X", in: "X. Section"))
+        XCTAssertFalse(merges("J", in: "J. and"))
+    }
+
     // MARK: - Segment merging
 
     private typealias Segment = KokoroAneEnglishPhonemizer.PhonemeSegment

@@ -39,10 +39,20 @@ enum EnglishTitleAbbreviations {
     static let inlineIPA: [String: String] = ["miz": "mˈɪz"]
 
     /// The spoken expansion for a merged title token (`"Mr."`), or `nil`
-    /// when the token is not a title abbreviation.
+    /// when the token is not a title abbreviation. An initial (`"J."`) reads
+    /// as its letter.
     static func expansion(forTitleToken token: String) -> String? {
         guard token.hasSuffix(".") else { return nil }
-        return expansions[String(token.dropLast())]
+        let word = String(token.dropLast())
+        return expansions[word] ?? (isInitial(word) ? word : nil)
+    }
+
+    /// A name's initial (`J` of `J. Smith`), which keeps its period like a
+    /// title so it never pauses. `I`, `V` and `X` are left out: as Roman
+    /// numerals they end sentences and headings (`World War I.`, `Part X.`).
+    static func isInitial(_ word: String) -> Bool {
+        word.count == 1 && !["I", "V", "X"].contains(word)
+            && word.first.map { $0.isUppercase && $0.isLetter } == true
     }
 
     /// Whether `word` + `"."` should merge into one token: `word` is a
@@ -54,7 +64,7 @@ enum EnglishTitleAbbreviations {
         in text: String,
         periodIndex: String.Index
     ) -> Bool {
-        guard expansions[word] != nil else { return false }
+        guard expansions[word] != nil || isInitial(word) else { return false }
         var index = text.index(after: periodIndex)
         while index < text.endIndex, text[index].isWhitespace {
             index = text.index(after: index)
