@@ -88,6 +88,13 @@ def spelled_letters(text: str) -> str:
     return re.sub(r"\b[A-Z](?: [A-Z]\b)+", lambda m: " ".join(c + "." for c in m.group(0).split()), text)
 
 
+def slot_index(name: str) -> int:
+    n = 0
+    for c in name:
+        n = n * 26 + (ord(c) - 96)
+    return n - 1
+
+
 def normalize(words: list[dict], ipa: list[str]) -> tuple[str, set[str]]:
     """Joined phonemes without stress or punctuation, and the unresolved words."""
     oov = set()
@@ -96,11 +103,11 @@ def normalize(words: list[dict], ipa: list[str]) -> tuple[str, set[str]]:
         p = w["phonemes"]
         for m in re.finditer(r"<OOV:([^>]*)>", p):
             token = m.group(1)
-            slot = re.fullmatch(r"zzipa(\d+)", token)
+            slot = re.fullmatch(r"zzipa([a-z]+)", token)
             if slot:
                 continue
             oov.add(token.lower())
-        p = re.sub(r"<OOV:zzipa(\d+)>", lambda m: ipa[int(m.group(1))], p)
+        p = re.sub(r"<OOV:zzipa([a-z]+)>", lambda m: ipa[slot_index(m.group(1))], p)
         p = re.sub(r"<OOV:([^>]*)>", lambda m: "<" + m.group(1).lower() + ">", p)
         parts.append(p)
     s = "".join(parts)
@@ -161,8 +168,14 @@ def main() -> None:
         ipa: list[str] = []
 
         def slot(m):
+            # Letters only: a digit would be rewritten by the number pass.
             ipa.append(m.group(1))
-            return f"zzipa{len(ipa) - 1}"
+            n, name = len(ipa) - 1, ""
+            while True:
+                name = chr(97 + n % 26) + name
+                n = n // 26 - 1
+                if n < 0:
+                    return f"zzipa{name}"
 
         forms = set()
         for spoken in [item["spoken"], *item.get("alternatives", [])]:

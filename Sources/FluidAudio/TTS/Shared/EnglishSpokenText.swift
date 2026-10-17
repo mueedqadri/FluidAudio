@@ -24,14 +24,18 @@ extension EnglishTextNormalizer {
     /// a digit are kept. Everything else NeMo would change (`Mr.` → `mister`,
     /// the space it drops before a quote mark) stays as written, and text
     /// without a digit never reaches it. Our own rules for what NeMo misses
-    /// (``spellRangesAndSymbols(_:)``) run first; digits NeMo leaves alone go
+    /// (``EnglishReferenceAbbreviations/spell(_:)``, then
+    /// ``spellRangesAndSymbols(_:)``) run first; digits NeMo leaves alone go
     /// through ``normalize(_:)``.
     static func spokenText(_ text: String) -> EnglishSpokenText {
-        guard text.contains(where: { $0.isASCIIDigit || spokenSymbols.contains($0) }) else {
+        guard text.contains(where: { $0.isASCIIDigit || $0 == "." || spokenSymbols.contains($0) }) else {
             return EnglishSpokenText(text: text, expansions: [])
         }
         var pieces = text.split(whereSeparator: \.isWhitespace).map { Piece(text: String($0), source: nil) }
-        pieces = rewrite(pieces, with: spellRangesAndSymbols, keepingOnlyDigitRewrites: false)
+        pieces = rewrite(
+            pieces,
+            with: { spellRangesAndSymbols(EnglishReferenceAbbreviations.spell($0)) },
+            keepingOnlyDigitRewrites: false)
         pieces = rewrite(pieces) {
             // NeMo reads `=` as "equal sign" when a percent sits on its left.
             NemoTextNormalizer.normalize($0, language: .english)
