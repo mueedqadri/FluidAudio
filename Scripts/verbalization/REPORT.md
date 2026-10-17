@@ -114,3 +114,25 @@ at numbers (dates, years, money, clock times) or the word right beside one
 (a stress change on "in" before a rewritten year). No change in text
 without a digit. The dump took ~2 min against ~18 s before: NeMo costs
 about 50 ms per paragraph that holds a digit on this Mac.
+
+## Ranges, versions and symbols (MAC-939)
+
+`EnglishTextNormalizer.spellRangesAndSymbols` runs before NeMo, for what
+NeMo reads wrongly or not at all: ranges (`7–9`, `pp. 45-67`, `58-7`,
+`1914-1918`, `6:15-6:30`), mixed numbers (`8-1/2`), version and section
+numbers (`v2.5.0`, `version 4.26`, `3.1.2`), `1.3B`, `5 AM`, and `±`, `×`,
+`<`, `>`, `≤`, `≥`, `=` beside a number, plus `B♭`/`F♯`. Arithmetic
+(`705 - 30 = 675`) is left to NeMo, which reads it whole; its "equal sign"
+after a percent becomes "equals". A hyphen is a range only between short
+numbers or two years, so phone numbers, ISO dates and ISBNs keep theirs.
+
+| Set | After MAC-938 | After MAC-939 |
+| --- | --- | --- |
+| dograh | 611 | **725** (693 exact) |
+| papers | 4 | **9** |
+
+By type: Sports score 0 → 40, Version Numbers 4 → 40, Mathematical
+Expression 29 → 40, Musical Notation 17 → 40, Time 36 → 40. No type went
+down. Prose check against MAC-938: 13 changed spans in 2,382 paragraphs,
+all page and date ranges, clock ranges, mixed numbers ("eight and one
+half") and one "equals".

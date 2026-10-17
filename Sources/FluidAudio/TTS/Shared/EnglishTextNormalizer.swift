@@ -48,12 +48,64 @@ enum EnglishTextNormalizer {
         return result
     }
 
-    /// `5/4 time` → `five four time`: a time signature, not a fraction.
-    static func spellTimeSignatures(_ text: String) -> String {
-        apply(Self.timeSignatureRegex, to: text) { groups in
+    /// Forms NeMo reads wrongly or not at all, in spoken words: time signatures
+    /// (`5/4 time`, which NeMo reads as a fraction), version and section numbers
+    /// (`v2.5.0`, `3.1.2`), ranges (`7–9`, `pp. 45-67`, `1914-1918`), scale
+    /// suffixes (`1.3B`), clock suffixes (`5 AM`), comparison and math symbols
+    /// beside a number (`p < 0.05`, `± 0.2`, `2×`, `n = 120`) and note
+    /// accidentals (`B♭`). The numbers a symbol sits beside are left for NeMo.
+    static func spellRangesAndSymbols(_ text: String) -> String {
+        var result = text
+        result = apply(Self.timeSignatureRegex, to: result) { groups in
             guard let beats = cardinalWords(groups[1]), let unit = cardinalWords(groups[2]) else { return nil }
             return "\(beats) \(unit) time"
         }
+        result = apply(Self.versionRegex, to: result) { groups in
+            dottedWords(groups[1]).map { "version \($0)" }
+        }
+        result = apply(Self.afterVersionRegex, to: result) { groups in dottedWords(groups[1]) }
+        result = apply(Self.dottedRegex, to: result) { groups in dottedWords(groups[1]) }
+        result = apply(Self.mixedNumberRegex, to: result) { groups in
+            let whole = normalize(groups[1])
+            let fraction = NemoTextNormalizer.normalize("\(groups[2])/\(groups[3])", language: .english)
+            guard !containsDigit(whole), !containsDigit(fraction) else { return nil }
+            return "\(whole) and \(fraction)"
+        }
+        result = apply(Self.clockRangeRegex, to: result) { groups in
+            let from = NemoTextNormalizer.normalize(groups[1], language: .english)
+            let to = NemoTextNormalizer.normalize(groups[2], language: .english)
+            guard !containsDigit(from), !containsDigit(to) else { return nil }
+            return "\(from) to \(to)"
+        }
+        for range in [Self.dashRangeRegex, Self.yearRangeRegex, Self.hyphenRangeRegex] {
+            result = apply(range, to: result) { groups in
+                let from = normalize(groups[1])
+                let to = normalize(groups[2])
+                guard !containsDigit(from), !containsDigit(to) else { return nil }
+                return "\(from) to \(to)"
+            }
+        }
+        result = apply(Self.scaleSuffixRegex, to: result) { groups in
+            let scale: String
+            switch groups[2] {
+            case "K": scale = "thousand"
+            case "M": scale = "million"
+            default: scale = "billion"
+            }
+            let number = normalize(groups[1])
+            return containsDigit(number) ? nil : "\(number) \(scale)"
+        }
+        for (regex, spoken) in Self.symbolWords {
+            result = apply(regex, to: result, transform: spoken)
+        }
+        return result
+    }
+
+    /// `2.5.0` → `two point five point zero`: each part is a whole number.
+    private static func dottedWords(_ dotted: String) -> String? {
+        let parts = dotted.split(separator: ".").map { cardinalWords(String($0)) }
+        guard !parts.isEmpty, parts.allSatisfy({ $0 != nil }) else { return nil }
+        return parts.compactMap { $0 }.joined(separator: " point ")
     }
 
     // MARK: - Boundaries
@@ -106,6 +158,71 @@ enum EnglishTextNormalizer {
     /// `5/4 time`, `12/8 time`.
     private static let timeSignatureRegex = regex(
         leadBoundary + #"([1-9][0-9]?)/([1-9][0-9]?) time\b"#)
+
+    /// The end of a number: not more of a word, a version or a decimal.
+    private static let numberEnd = #"(?![A-Za-z0-9])(?![.,][0-9])"#
+
+    /// `v2.5.0`, `v4`.
+    private static let versionRegex = regex(
+        #"(?<![A-Za-z0-9.])[vV]([0-9]+(?:\.[0-9]+)*)"# + numberEnd)
+
+    /// `version 4.26`: after the word, one dot is a version, not a decimal.
+    private static let afterVersionRegex = regex(
+        #"(?<=[Vv]ersion )([0-9]+(?:\.[0-9]+)+)"# + numberEnd)
+
+    /// `3.1.2`: two or more dots, so never a decimal.
+    private static let dottedRegex = regex(
+        #"(?<![A-Za-z0-9.])([0-9]+(?:\.[0-9]+){2,})"# + numberEnd)
+
+    /// `8-1/2`, `2 3/4`: a whole number and a fraction.
+    private static let mixedNumberRegex = regex(
+        #"(?<![A-Za-z0-9.:/\-])([0-9]+)[- ]([0-9])/([0-9]{1,2})(?![A-Za-z0-9/])"#)
+
+    /// `6:15-6:30`, `8:30–4:30`: a range of clock times.
+    private static let clockRangeRegex = regex(
+        #"(?<![A-Za-z0-9.:/\-])([0-9]{1,2}:[0-9]{2})\s*[-–—]\s*([0-9]{1,2}:[0-9]{2})(?![A-Za-z0-9:/\-])"#)
+
+    // The ranges below leave a number beside `:` (a clock) or `/` (`8-1/2`) alone.
+
+    /// `7–9`, `2 — 4`, `1.5–2.5`: an en or em dash between numbers.
+    private static let dashRangeRegex = regex(
+        #"(?<![A-Za-z0-9.:/])([0-9]+(?:\.[0-9]+)?)\s*[–—]\s*([0-9]+(?:\.[0-9]+)?)(?![:/])"# + numberEnd)
+
+    /// `1914-1918`: a hyphen between two years.
+    private static let yearRangeRegex = regex(
+        #"(?<![A-Za-z0-9.:/\-])((?:1[0-9]|20)[0-9]{2})-((?:1[0-9]|20)[0-9]{2})(?![A-Za-z0-9:/\-])"#)
+
+    /// `45-67`, `58-7`: a hyphen between two short numbers. A phone number
+    /// (`555-0199`), an ISO date or an ISBN has a longer part or more hyphens.
+    private static let hyphenRangeRegex = regex(
+        #"(?<![A-Za-z0-9.:/\-])([0-9]{1,3})-([0-9]{1,3})(?![A-Za-z0-9:/\-])(?![.,][0-9])"#)
+
+    /// `1.3B`, `2.5M`: a decimal with a scale letter. A bare `3B` may be a room.
+    private static let scaleSuffixRegex = regex(
+        #"(?<![A-Za-z0-9.])([0-9]+\.[0-9]+)([KMB])(?![A-Za-z0-9])"#)
+
+    /// Symbols read only beside a number (or after a note letter), with how
+    /// each reads.
+    private static let symbolWords: [(NSRegularExpression, @Sendable ([String]) -> String?)] = [
+        (regex(#"(?<![A-Za-z0-9.:])([0-9]{1,2}(?::[0-9]{2})?)\s?([AaPp])(?:M|m|\.M\.|\.m\.)(?![A-Za-z])"#), { groups in
+            let clock = NemoTextNormalizer.normalize(groups[1], language: .english)
+            guard !containsDigit(clock) else { return nil }
+            return "\(clock) \(groups[2].lowercased()).m."
+        }),
+        (regex(#"(?<=[0-9%])\s*±\s*(?=[0-9])"#), { _ in " plus or minus " }),
+        (regex(#"(?<![A-Za-z0-9.])([0-9]+(?:\.[0-9]+)?)\s*×"#), { groups in
+            let number = normalize(groups[1])
+            return containsDigit(number) ? nil : "\(number) times"
+        }),
+        (regex(#"(?<![^\s(])≤\s*(?=-?[0-9])"#), { _ in "less than or equal to " }),
+        (regex(#"(?<![^\s(])≥\s*(?=-?[0-9])"#), { _ in "greater than or equal to " }),
+        (regex(#"(?<![^\s(])<\s*(?=-?[0-9])"#), { _ in "less than " }),
+        (regex(#"(?<![^\s(])>\s*(?=-?[0-9])"#), { _ in "greater than " }),
+        // `n = 120`; NeMo reads arithmetic (`705 - 30 = 675`) itself, so a number on the left is its.
+        (regex(#"(?<=[A-Za-z]\s?)=\s*(?=-?[0-9])"#), { _ in " equals " }),
+        (regex(#"\b([A-G])♭"#), { "\($0[1]) flat" }),
+        (regex(#"\b([A-G])♯"#), { "\($0[1]) sharp" }),
+    ]
 
     /// `26` — a plain standalone integer.
     private static let cardinalRegex = regex(
