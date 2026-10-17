@@ -85,3 +85,32 @@ read as "no", ranges without "to", `%`, `<`, `=`, `±`, `×` and `°` silent,
 URL and email items are scored on the frontend alone. In ONarrator the app
 rewrites links before speech ("link to granite.dev"), so those 0 of 40 say
 little about what a listener hears.
+
+## After NeMo (MAC-938)
+
+`EnglishTextNormalizer.spokenText` runs NeMo's English grammars
+(text-processing-rs v0.3.1) over sentences that contain a digit and keeps
+only the rewrites of written words that hold one; a neighbouring word NeMo
+rewrites on its own (`Mr.`, `i.e.`) stays as written. Time signatures are
+read before NeMo, and the remaining digits go through the old rules. Each
+rewrite keeps its written source, and the phonemizer's segments for it are
+joined under that source, so word timings name `"1999"` rather than
+`"nineteen"`, `"ninety"`, `"nine"`.
+
+| Set | Before | After |
+| --- | --- | --- |
+| dograh | 352 | **611** (579 exact) |
+| papers | 2 | **4** |
+
+By type, before → after: Date 0 → 40, Fractions 0 → 40, Phone Number
+0 → 37, Unit 5 → 38, License Plate or Serial Numbers 0 → 35, Mathematical
+Expression 0 → 29, Vehicle or Product Code 0 → 21, Legal Reference 6 → 17,
+ISBN 0 → 12, Musical Notation 16 → 17. No type went down. Still at 0–4:
+Address, Geographic Coordinates, Hashtag or Mention, Roman Numeral, Sports
+score, URL or Email, Chemical Formula, Version Numbers.
+
+Prose check against `b6879249`: 480 changed spans in 2,382 paragraphs, all
+at numbers (dates, years, money, clock times) or the word right beside one
+(a stress change on "in" before a rewritten year). No change in text
+without a digit. The dump took ~2 min against ~18 s before: NeMo costs
+about 50 ms per paragraph that holds a digit on this Mac.
