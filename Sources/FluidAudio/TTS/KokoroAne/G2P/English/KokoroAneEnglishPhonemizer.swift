@@ -348,7 +348,7 @@ struct KokoroAneEnglishPhonemizer: Sendable {
         if customLexicon[word] == nil, customLexicon[normalized] == nil,
             let spoken = EnglishTitleAbbreviations.expansion(forTitleToken: word),
             let ipa = resolveFromLexicon(spoken, posTag: posTag, context: context)
-                ?? EnglishTitleAbbreviations.inlineIPA[spoken]
+                ?? EnglishPronunciations.ipa[spoken]
         {
             return ipa
         }
@@ -386,8 +386,8 @@ struct KokoroAneEnglishPhonemizer: Sendable {
             }
         }
 
-        // Latin the lexicon lacks (`et` of `et al.`), which BART would sound out.
-        if let ipa = EnglishReferenceAbbreviations.latinIPA[normalized] {
+        // Words the lexicon lacks (`et` of `et al.`), which BART would sound out.
+        if let ipa = EnglishPronunciations.ipa[normalized] {
             return ipa
         }
 
@@ -523,7 +523,7 @@ struct KokoroAneEnglishPhonemizer: Sendable {
         // before consulting the lexicon so they sound like `A I` / `U S`
         // (issue #710). Lowercase `us`/`ai` are untouched — the override
         // only matches the exact uppercase spelling.
-        if EnglishInitialisms.letterNameOverrides.contains(word) {
+        if EnglishPronunciations.spelledAsLetters.contains(word) {
             if let spelled = spellAsLetterNames(word) {
                 return spelled
             }

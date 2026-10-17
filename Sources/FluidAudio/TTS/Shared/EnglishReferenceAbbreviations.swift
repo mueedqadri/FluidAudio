@@ -14,9 +14,6 @@ enum EnglishReferenceAbbreviations {
     /// ``EnglishAbbreviationTable``.
     static let beforeNumber = EnglishAbbreviationTable.spokenForms(in: .beforeNumber)
 
-    /// Latin words the Misaki lexicon lacks, which the G2P model would sound out.
-    static let latinIPA: [String: String] = ["et": "ˈɛt", "ibid": "ˈɪbɪd"]
-
     /// `text` with its reference abbreviations in words.
     static func spell(_ text: String) -> String {
         guard text.contains(where: { $0 == "." || $0.isNumber }) else { return text }
@@ -54,15 +51,10 @@ enum EnglishReferenceAbbreviations {
     private static let letteredYearRegex = regex(
         #"(?<![A-Za-z0-9.])((?:1[5-9]|20)[0-9]{2})([a-z])(?![A-Za-z0-9])"#)
 
-    /// A time unit after a number (`3.5 hrs`, `20 min`, `1 hr`); the number is NeMo's.
-    private static let units: [(NSRegularExpression, String)] = [
-        (regex(#"(?<=(?<![0-9.])1 )hrs?\.?(?![A-Za-z])"#), "hour"),
-        (regex(#"(?<=(?<![0-9.])1 )mins?\.?(?![A-Za-z])"#), "minute"),
-        (regex(#"(?<=(?<![0-9.])1 )secs?\.?(?![A-Za-z])"#), "second"),
-        (regex(#"(?<=[0-9] )hrs?\.?(?![A-Za-z])"#), "hours"),
-        (regex(#"(?<=[0-9] )mins?\.?(?![A-Za-z])"#), "minutes"),
-        (regex(#"(?<=[0-9] )secs?\.?(?![A-Za-z])"#), "seconds"),
-    ]
+    /// A time unit after a number (`3.5 hrs`, `20 min`, `1 hr`), from
+    /// ``EnglishAbbreviationTable``; the number is NeMo's.
+    private static let units: [(NSRegularExpression, String)] =
+        EnglishAbbreviationTable.afterNumberPatterns.map { (regex($0.pattern), $0.spoken) }
 
     private static func regex(_ pattern: String) -> NSRegularExpression {
         try! NSRegularExpression(pattern: pattern, options: [])

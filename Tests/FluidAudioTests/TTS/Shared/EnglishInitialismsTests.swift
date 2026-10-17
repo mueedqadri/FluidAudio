@@ -55,10 +55,10 @@ final class EnglishInitialismsTests: XCTestCase {
     }
 
     func testLetterNameOverridesAreUppercaseOnly() {
-        XCTAssertTrue(EnglishInitialisms.letterNameOverrides.contains("AI"))
-        XCTAssertTrue(EnglishInitialisms.letterNameOverrides.contains("US"))
-        XCTAssertTrue(EnglishInitialisms.letterNameOverrides.contains("AM"))
-        XCTAssertFalse(EnglishInitialisms.letterNameOverrides.contains("ai"))
-        XCTAssertFalse(EnglishInitialisms.letterNameOverrides.contains("us"))
+        XCTAssertTrue(EnglishPronunciations.spelledAsLetters.contains("AI"))
+        XCTAssertTrue(EnglishPronunciations.spelledAsLetters.contains("US"))
+        XCTAssertTrue(EnglishPronunciations.spelledAsLetters.contains("AM"))
+        XCTAssertFalse(EnglishPronunciations.spelledAsLetters.contains("ai"))
+        XCTAssertFalse(EnglishPronunciations.spelledAsLetters.contains("us"))
     }
 }

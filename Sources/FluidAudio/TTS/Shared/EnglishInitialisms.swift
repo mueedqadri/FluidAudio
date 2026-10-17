@@ -5,7 +5,8 @@ import Foundation
 ///
 /// A few bundled Misaki entries don't read as letter names even though
 /// uppercase callers expect them to (`AI` → blended `ˈAˌI`, `US` → the
-/// lowercase-pronoun `ʌs` shape), and unknown all-caps tokens (`FBI`,
+/// lowercase-pronoun `ʌs` shape; listed in
+/// ``EnglishPronunciations/spelledAsLetters``), and unknown all-caps tokens (`FBI`,
 /// `ATP`) miss the lexicon and fall through to BART G2P, which sounds them
 /// out as a word. Both ``KokoroAneEnglishPhonemizer`` and (in a follow-up)
 /// StyleTTS2 can use these helpers to spell such tokens from the per-letter
@@ -16,13 +17,6 @@ import Foundation
 /// mechanics; the data stays with each frontend.
 enum EnglishInitialisms {
 
-    /// Exact uppercase spellings whose bundled lexicon entry is not the
-    /// letter-name reading callers expect. These should bypass the Misaki
-    /// lexicon and be spelled out from the per-letter entries instead.
-    /// Lowercase `us`/`ai` are intentionally absent — only the exact
-    /// uppercase spelling is overridden. `AM` is the meridiem NeMo writes
-    /// (`5 a.m.` → `five AM`), not the verb.
-    static let letterNameOverrides: Set<String> = ["AI", "AM", "US"]
 
     /// Length bounds for spelling unknown all-caps tokens as letter names.
     private static let lengthRange = 2...5

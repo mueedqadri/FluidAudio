@@ -19,6 +19,9 @@ enum EnglishAbbreviationTable {
             /// expression when the written form alone does not say where it
             /// may match.
             case anywhere(pattern: String?)
+            /// A unit after a number (`3 hrs`), plural after any number but a
+            /// lone `1`; `written` matches with or without `s` and a period.
+            case afterNumber(singular: String)
         }
 
         /// The written form: without its period for titles and reference
@@ -28,7 +31,7 @@ enum EnglishAbbreviationTable {
         let context: Context
     }
 
-    static let entries: [Entry] = titles + beforeNumber + anywhere
+    static let entries: [Entry] = titles + beforeNumber + anywhere + afterNumber
 
     /// `Mrs` reads the lexicon's own `mrs` entry (`mˈɪsɪz`): canonical Misaki
     /// resolves the stem, and the `missus` word entry carries a different vowel.
@@ -70,6 +73,11 @@ enum EnglishAbbreviationTable {
         Entry(written: "ed.", spoken: "edition", context: .anywhere(pattern: #"(?<=[0-9](?:st|nd|rd|th) )ed\."#)),
     ]
 
+    /// The number itself is NeMo's; only the unit word is rewritten.
+    private static let afterNumber: [Entry] = [
+        ("hr", "hours", "hour"), ("min", "minutes", "minute"), ("sec", "seconds", "second"),
+    ].map { Entry(written: $0.0, spoken: $0.1, context: .afterNumber(singular: $0.2)) }
+
     /// Written form → spoken words for the entries read in `context`.
     static func spokenForms(in context: Entry.Context) -> [String: String] {
         Dictionary(entries.filter { $0.context == context }.map { ($0.written, $0.spoken) }) { first, _ in first }
@@ -82,5 +90,16 @@ enum EnglishAbbreviationTable {
             guard case .anywhere(let pattern) = entry.context else { return nil }
             return (pattern ?? #"(?<![A-Za-z.])"# + NSRegularExpression.escapedPattern(for: entry.written), entry.spoken)
         }
+    }
+
+    /// The units with their patterns: every singular (after a lone `1`)
+    /// before any plural, so `1 hr` never reads "hours".
+    static var afterNumberPatterns: [(pattern: String, spoken: String)] {
+        let units: [(stem: String, plural: String, singular: String)] = entries.compactMap { entry in
+            guard case .afterNumber(let singular) = entry.context else { return nil }
+            return (NSRegularExpression.escapedPattern(for: entry.written), entry.spoken, singular)
+        }
+        return units.map { (#"(?<=(?<![0-9.])1 )"# + $0.stem + #"s?\.?(?![A-Za-z])"#, $0.singular) }
+            + units.map { (#"(?<=[0-9] )"# + $0.stem + #"s?\.?(?![A-Za-z])"#, $0.plural) }
     }
 }

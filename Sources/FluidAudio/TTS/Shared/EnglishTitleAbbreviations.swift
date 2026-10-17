@@ -22,12 +22,9 @@ enum EnglishTitleAbbreviations {
 
     /// Written form without the period → spoken expansion word, from
     /// ``EnglishAbbreviationTable``. The expansion resolves from the caller's
-    /// lexicon; ``inlineIPA`` covers the expansions the Misaki lexicon does
-    /// not carry.
+    /// lexicon; ``EnglishPronunciations/ipa`` covers the expansions the Misaki
+    /// lexicon does not carry.
     static let expansions = EnglishAbbreviationTable.spokenForms(in: .title)
-
-    /// Expansion words missing from the Misaki lexicon.
-    static let inlineIPA: [String: String] = ["miz": "mˈɪz"]
 
     /// The spoken expansion for a merged title token (`"Mr."`), or `nil`
     /// when the token is not a title abbreviation. An initial (`"J."`) reads

@@ -18,6 +18,11 @@ final class EnglishAbbreviationTableTests: XCTestCase {
         XCTAssertNil(EnglishTitleAbbreviations.expansions["Mr."])
     }
 
+    func testUnitsReadSingularAfterOne() {
+        XCTAssertEqual(EnglishReferenceAbbreviations.spell("It took 1 hr and 20 mins today."), "It took 1 hour and 20 minutes today.")
+        XCTAssertEqual(EnglishReferenceAbbreviations.spell("Wait 3.5 secs."), "Wait 3.5 seconds")
+    }
+
     func testEveryAnywhereEntryReadsInASentence() {
         let frames: [String: String] = [
             "et al.": "Smith et al. showed it", "(Ed.)": "Smith (Ed.) wrote it",
