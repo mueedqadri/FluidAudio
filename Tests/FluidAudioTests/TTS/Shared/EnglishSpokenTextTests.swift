@@ -53,6 +53,50 @@ final class EnglishSpokenTextTests: XCTestCase {
         XCTAssertEqual(ns.substring(with: range), "nineteen ninety nine")
     }
 
+    // MARK: - Ranges, versions and symbols
+
+    func testRangesReadWithTo() {
+        XCTAssertTrue(spoken("See pages 7–9 today.").contains("seven to nine"))
+        XCTAssertTrue(spoken("See pp. 45-67 for it.").contains("forty five to sixty seven"))
+        XCTAssertTrue(spoken("The match ended 58-7 at home.").contains("fifty eight to seven"))
+        XCTAssertTrue(spoken("The war of 1914-1918 ended.").contains("nineteen fourteen to nineteen eighteen"))
+        XCTAssertTrue(spoken("Open 6:15-6:30 daily.").contains("six fifteen to six thirty"))
+    }
+
+    func testHyphensThatAreNotRangesStay() {
+        XCTAssertFalse(spoken("Call 555-0199 now.").contains(" to "))
+        XCTAssertFalse(spoken("It was on 2009-02-26 here.").contains(" to "))
+        XCTAssertTrue(spoken("It rose from 8-1/2 to 9.").contains("eight and one half"))
+    }
+
+    func testVersionsAndSectionNumbers() {
+        XCTAssertTrue(spoken("Section 3.1.2 describes it.").contains("three point one point two"))
+        XCTAssertTrue(spoken("Upgrade to v2.5.0 now.").contains("version two point five point zero"))
+        XCTAssertTrue(spoken("Fixed in version 4.26 today.").contains("version four point twenty six"))
+    }
+
+    func testSymbolsBesideNumbers() {
+        let stats = spoken("It was significant (p < 0.05, n = 120).")
+        XCTAssertTrue(stats.contains("less than zero point zero five"), stats)
+        XCTAssertTrue(stats.contains("n equals one hundred twenty"), stats)
+        XCTAssertTrue(spoken("It rose 93.4% ± 0.2 overall.").contains("plus or minus zero point two"))
+        XCTAssertTrue(spoken("A 2× speedup.").contains("two times speedup"))
+        XCTAssertTrue(spoken("Keep x ≥ 5 always.").contains("greater than or equal to five"))
+        XCTAssertTrue(spoken("Meet at 5 AM sharp.").contains("five a.m."))
+        XCTAssertTrue(spoken("The model has 1.3B parameters.").contains("one point three billion"))
+    }
+
+    func testArithmeticStaysWithNeMo() {
+        XCTAssertTrue(
+            spoken("Show 705 - 30 = 675.").contains("seven hundred five minus thirty equals six hundred seventy five"))
+        XCTAssertTrue(spoken("Here 50% of 620 = 310 holds.").contains("equals three hundred ten"))
+    }
+
+    func testAccidentalsWithoutDigits() {
+        XCTAssertEqual(spoken("Play it in B♭ major."), "Play it in B flat major.")
+        XCTAssertEqual(spoken("Then F♯ minor."), "Then F sharp minor.")
+    }
+
     // MARK: - Segment merging
 
     private typealias Segment = KokoroAneEnglishPhonemizer.PhonemeSegment
