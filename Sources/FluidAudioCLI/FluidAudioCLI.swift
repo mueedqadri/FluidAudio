@@ -76,6 +76,8 @@ struct FluidAudioCLI {
             await G2PBenchmark.run(arguments: Array(arguments.dropFirst(2)))
         case "phonemize-parity":
             await PhonemizeParityCommand.run(arguments: Array(arguments.dropFirst(2)))
+        case "nemo-normalize":
+            await NemoNormalizeCommand.run(arguments: Array(arguments.dropFirst(2)))
         case "nemotron-benchmark":
             await NemotronBenchmark.run(arguments: Array(arguments.dropFirst(2)))
         case "nemotron-transcribe":
@@ -123,6 +125,7 @@ struct FluidAudioCLI {
                 fleurs-benchmark        Run multilingual ASR benchmark on FLEURS dataset
                 transcribe              Transcribe audio file using streaming ASR
                 multi-stream            Transcribe multiple audio files in parallel
+                nemo-normalize          Print NeMo's spoken reading of each stdin line (--language en)
                 tts                     Synthesize speech from text (KokoroAne / PocketTTS / StyleTTS2)
                 tts-asr-verify          Batch TTS→ASR roundtrip WER verification
                 tts-benchmark           Quantitative TTS benchmark (latency, quality, compute-unit sweep)
