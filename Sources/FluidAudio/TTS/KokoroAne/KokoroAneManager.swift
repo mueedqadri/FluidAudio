@@ -320,11 +320,12 @@ public actor KokoroAneManager {
     private func englishSegments(
         for text: String
     ) async throws -> [KokoroAneEnglishPhonemizer.PhonemeSegment] {
-        let normalized = EnglishTextNormalizer.normalize(text)
+        let spoken = EnglishTextNormalizer.spokenText(text)
         let phonemizer = await ensureEnglishPhonemizer()
-        return try await phonemizer.phonemizeSegments(normalized) { word in
+        let segments = try await phonemizer.phonemizeSegments(spoken.text) { word in
             try await self.englishG2PPhonemes(for: word)
         }
+        return spoken.mergingExpansions(segments)
     }
 
     /// Resolve an English OOV word through this manager's G2P instance.
@@ -530,15 +531,14 @@ public actor KokoroAneManager {
         )
     }
 
-    /// English text → Misaki-style IPA. A conservative normalization pass
-    /// first rewrites strict standalone numbers, ordinals, decimals, and
-    /// 12-hour times into spoken words (issue #711), then lexicon-first
+    /// English text → Misaki-style IPA. Numbers and symbols are first put in
+    /// spoken form (`EnglishTextNormalizer.spokenText`), then lexicon-first
     /// resolution applies (weak function-word forms — `to` → `tu`, not the
     /// stressed BART citation form `tˈO`, issue #691), with per-word BART
     /// G2P fallback for OOV words and vocab-supported punctuation kept as
     /// prosody/pause tokens.
     private func phonemize(text: String) async throws -> String {
-        let normalized = EnglishTextNormalizer.normalize(text)
+        let normalized = EnglishTextNormalizer.spokenText(text).text
         let phonemizer = await ensureEnglishPhonemizer()
         let g2pModel = self.g2pModel
         return try await phonemizer.phonemize(normalized) { word in

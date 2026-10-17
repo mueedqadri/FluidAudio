@@ -48,6 +48,14 @@ enum EnglishTextNormalizer {
         return result
     }
 
+    /// `5/4 time` → `five four time`: a time signature, not a fraction.
+    static func spellTimeSignatures(_ text: String) -> String {
+        apply(Self.timeSignatureRegex, to: text) { groups in
+            guard let beats = cardinalWords(groups[1]), let unit = cardinalWords(groups[2]) else { return nil }
+            return "\(beats) \(unit) time"
+        }
+    }
+
     // MARK: - Boundaries
     //
     // A standalone number must not be glued to a letter, another digit, or
@@ -94,6 +102,10 @@ enum EnglishTextNormalizer {
     /// `007` — leading zero forces a digit-by-digit reading.
     private static let leadingZeroRegex = regex(
         leadBoundary + #"(0[0-9]+)"# + trailBoundary)
+
+    /// `5/4 time`, `12/8 time`.
+    private static let timeSignatureRegex = regex(
+        leadBoundary + #"([1-9][0-9]?)/([1-9][0-9]?) time\b"#)
 
     /// `26` — a plain standalone integer.
     private static let cardinalRegex = regex(

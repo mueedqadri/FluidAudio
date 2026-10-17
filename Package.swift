@@ -25,8 +25,17 @@ let package = Package(
             dependencies: [
                 "FastClusterWrapper",
                 "MachTaskSelfWrapper",
+                "NemoTextProcessing",
             ],
             path: "Sources/FluidAudio"
+        ),
+        // NVIDIA NeMo text normalization (compiled FSTs), prebuilt from
+        // FluidInference/text-processing-rs; the release upstream FluidAudio pins.
+        .binaryTarget(
+            name: "NemoTextProcessing",
+            url:
+                "https://github.com/FluidInference/text-processing-rs/releases/download/v0.3.1/NemoTextProcessing.xcframework.zip",
+            checksum: "5fa8c10d4ec26c1bb2413125f351a7222a4c68a23b74476680fbada7e26fc6aa"
         ),
         .target(
             name: "FastClusterWrapper",

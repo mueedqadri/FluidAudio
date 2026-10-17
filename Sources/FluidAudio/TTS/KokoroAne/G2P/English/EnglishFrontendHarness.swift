@@ -49,10 +49,10 @@ public struct EnglishFrontendHarness: Sendable {
 
     /// Normalizes and phonemizes `text`, returning one entry per resolved word.
     public func phonemizeWords(_ text: String) async throws -> [WordPhonemes] {
-        let normalized = EnglishTextNormalizer.normalize(text)
-        let segments = try await phonemizer.phonemizeSegments(normalized) { word in
+        let spoken = EnglishTextNormalizer.spokenText(text)
+        let segments = try await phonemizer.phonemizeSegments(spoken.text) { word in
             ["<OOV:\(word)>"]
         }
-        return segments.map { WordPhonemes(word: $0.word, phonemes: $0.phonemes) }
+        return spoken.mergingExpansions(segments).map { WordPhonemes(word: $0.word, phonemes: $0.phonemes) }
     }
 }

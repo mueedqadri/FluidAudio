@@ -75,6 +75,11 @@ def dump(args) -> None:
 def diff(args) -> None:
     def load(path):
         return {r["key"]: r for r in map(json.loads, Path(path).read_text(encoding="utf-8").splitlines())}
+
+    def sounds(row):
+        """Phoneme tokens, each with the word it came from; word labels may differ by design."""
+        return [(p, w["word"]) for w in row["words"] for p in w["phonemes"].split()]
+
     base, change = load(args.base), load(args.change)
     changes = collections.Counter()
     shown = 0
@@ -82,18 +87,18 @@ def diff(args) -> None:
         c = change.get(key)
         if c is None:
             continue
-        bw = [(w["word"], w["phonemes"]) for w in b["words"]]
-        cw = [(w["word"], w["phonemes"]) for w in c["words"]]
-        for op, i1, i2, j1, j2 in difflib.SequenceMatcher(None, bw, cw, autojunk=False).get_opcodes():
+        bs, cs = sounds(b), sounds(c)
+        matcher = difflib.SequenceMatcher(None, [p for p, _ in bs], [p for p, _ in cs], autojunk=False)
+        for op, i1, i2, j1, j2 in matcher.get_opcodes():
             if op == "equal":
                 continue
-            before = " ".join(w for w, _ in bw[i1:i2])
-            after = " ".join(w for w, _ in cw[j1:j2])
+            before = " ".join(dict.fromkeys(w for _, w in bs[max(0, i1 - 1):i2 + 1]))
+            after = " ".join(dict.fromkeys(w for _, w in cs[max(0, j1 - 1):j2 + 1]))
             changes[(before, after)] += 1
             if shown < args.limit:
                 shown += 1
-                print(f"{key}: {before!r} [{' '.join(p for _, p in bw[i1:i2])}]")
-                print(f"{' ' * len(key)}  -> {after!r} [{' '.join(p for _, p in cw[j1:j2])}]")
+                print(f"{key}: {before!r} [{' '.join(p for p, _ in bs[i1:i2])}]")
+                print(f"{' ' * len(key)}  -> {after!r} [{' '.join(p for p, _ in cs[j1:j2])}]")
     total = sum(changes.values())
     print(f"\n{total} changed spans in {len(base)} paragraphs, {len(changes)} distinct")
     for (before, after), n in changes.most_common(args.limit):
