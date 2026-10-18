@@ -32,5 +32,7 @@ final class EnglishFormulasTests: XCTestCase {
         XCTAssertEqual(spoken("It was 10⁻³ of that."), "It was ten to the minus three of that.")
         XCTAssertEqual(spoken("The plot is 3 m² wide."), "The plot is three square meters wide.")
         XCTAssertEqual(spoken("Let x₁ be small."), "Let x one be small.")
+        XCTAssertEqual(spoken("A clamped L¹ loss."), "A clamped L one loss.")
+        XCTAssertEqual(spoken("Smoothing in log₁₀ units."), "Smoothing in log ten units.")
     }
 }
