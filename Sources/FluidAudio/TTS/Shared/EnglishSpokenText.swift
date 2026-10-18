@@ -29,7 +29,7 @@ extension EnglishTextNormalizer {
     static func spokenText(_ text: String) -> EnglishSpokenText {
         var pieces = text.split(whereSeparator: \.isWhitespace).map { Piece(text: String($0), source: nil) }
         pieces = rewrite(pieces, keepingOnlyDigitRewrites: false) {
-            spellRangesAndSymbols(EnglishReferenceAbbreviations.spell($0))
+            spellRangesAndSymbols(EnglishReferenceAbbreviations.spell(EnglishAbbreviationTable.spellWords($0)))
         }
         pieces = rewrite(pieces, keepingOnlyDigitRewrites: false, when: nemoMayRead, holding: nemoMisreads) {
             // NeMo reads `=` as "equal sign" when a percent sits on its left, and
@@ -50,13 +50,13 @@ extension EnglishTextNormalizer {
     }
 
     /// Written words NeMo may read differently: a digit, a symbol, a dotted
-    /// form (`e.g.`, `U.S.`, `jane.doe`), a short capitalized abbreviation
-    /// (`Mr.`, `St.`, `Gen.`) or a capitalized run (`NASA`, `VIII`). A stretch
-    /// with none of them skips NeMo, which costs tens of milliseconds a sentence.
+    /// form (`U.S.`, `jane.doe`) or a capitalized run (`NASA`, `VIII`).
+    /// Abbreviations are the table's (``EnglishAbbreviationTable/spellWords(_:)``),
+    /// so a stretch with none of these skips NeMo, which costs tens of
+    /// milliseconds a sentence.
     private static func nemoMayRead(_ word: String) -> Bool {
         word.contains(where: { $0.isASCIIDigit || "@#&$%€£¥+=/<>×±°§~^".contains($0) })
-            || word.range(
-                of: #"[A-Za-z]\.[A-Za-z]|^\W*[A-Z][a-z]{0,3}\.|[A-Z]{2,}"#, options: .regularExpression) != nil
+            || word.range(of: #"[A-Za-z]\.[A-Za-z]|[A-Z]{2,}"#, options: .regularExpression) != nil
     }
 
     /// Written words NeMo reads wrongly: `AT&T` → `ATANDT`, initials it joins
