@@ -29,7 +29,8 @@ extension EnglishTextNormalizer {
     static func spokenText(_ text: String) -> EnglishSpokenText {
         var pieces = text.split(whereSeparator: \.isWhitespace).map { Piece(text: String($0), source: nil) }
         pieces = rewrite(pieces, keepingOnlyDigitRewrites: false) {
-            spellRangesAndSymbols(EnglishReferenceAbbreviations.spell(EnglishAbbreviationTable.spellWords($0)))
+            spellRangesAndSymbols(
+                EnglishReferenceAbbreviations.spell(EnglishRomanNumerals.spell(EnglishAbbreviationTable.spellWords($0))))
         }
         pieces = rewrite(pieces, keepingOnlyDigitRewrites: false, when: nemoMayRead, holding: nemoMisreads) {
             // NeMo reads `=` as "equal sign" when a percent sits on its left, and
