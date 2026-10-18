@@ -216,3 +216,19 @@ the engine. Nothing reads them yet (MAC-1002).
 
 Behavior-neutral: dograh 780 and papers 22 of 22 per type, prose check 0
 changed spans.
+
+## Formulas and powers (MAC-1007)
+
+`EnglishFormulas` reads a run of element symbols letter by letter with its
+counts (`Fe2O3` → "F E two O three", `H₂O` → "H two O") and a superscript
+power as a power (`mc²` → "m c squared", `10⁻³` → "ten to the minus three",
+`x₁` → "x one"); `3 m²` stays NeMo's "three square meters". Three checks
+keep lookalikes as written: a count is one or two digits (`CS581676` is a
+serial), a run without a count needs a lowercase letter (`NO`, `SON`), and it
+must end in a nonmetal, as compounds are written (`HCl`, `GaAs`; not `HeLa`,
+`SARS-CoV-2`).
+
+Dograh 822 → 853: Chemical Formula 2 → 33, no type lower. The seven left are
+`CaO`, `BaO` and other calcium and barium salts, whose listed reading writes
+the letter as "a", which the scorer phonemizes as the article. Papers 22 of
+22; prose check 0 changed spans.
