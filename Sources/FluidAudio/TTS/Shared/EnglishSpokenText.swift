@@ -30,7 +30,8 @@ extension EnglishTextNormalizer {
         var pieces = text.split(whereSeparator: \.isWhitespace).map { Piece(text: String($0), source: nil) }
         pieces = rewrite(pieces, keepingOnlyDigitRewrites: false) {
             spellRangesAndSymbols(
-                EnglishReferenceAbbreviations.spell(EnglishRomanNumerals.spell(EnglishAbbreviationTable.spellWords($0))))
+                EnglishReferenceAbbreviations.spell(
+                    EnglishFormulas.spell(EnglishRomanNumerals.spell(EnglishAbbreviationTable.spellWords($0)))))
         }
         pieces = rewrite(pieces, keepingOnlyDigitRewrites: false, when: nemoMayRead, holding: nemoMisreads) {
             // NeMo reads `=` as "equal sign" when a percent sits on its left, and
