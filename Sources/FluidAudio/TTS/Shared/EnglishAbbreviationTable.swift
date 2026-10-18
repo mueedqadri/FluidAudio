@@ -105,4 +105,85 @@ enum EnglishAbbreviationTable {
         return units.map { (#"(?<=(?<![0-9.])1 )"# + $0.stem + #"s?\.?(?![A-Za-z])"#, $0.singular) }
             + units.map { (#"(?<=[0-9] )"# + $0.stem + #"s?\.?(?![A-Za-z])"#, $0.plural) }
     }
+
+    // MARK: - Words read before NeMo
+
+    /// NeMo readings REPORT.md keeps ours for, or holds back from NeMo.
+    private static let nemoDeclined: Set<String> = ["etc.", "Mrs.", "Ms."]
+
+    /// Our titles: the ones NeMo reads wherever they stand (`Mr.` in `Mr. and
+    /// Mrs.`) are read anywhere, the rest only before a name.
+    private static let titleReadings: [String: (spoken: String, anywhere: Bool)] = {
+        let nemoAnywhere = Set(nemoEntries.filter { $0.context == .anywhere(pattern: nil) }.map(\.written))
+        var readings: [String: (spoken: String, anywhere: Bool)] = [:]
+        for entry in entries where entry.context == .title {
+            readings[entry.written] = (entry.spoken, nemoAnywhere.contains(entry.written + "."))
+        }
+        for entry in nemoEntries where entry.context == .title && readings[entry.written] == nil {
+            readings[entry.written] = (entry.spoken, false)
+        }
+        return readings
+    }()
+
+    /// NeMo's street words, read after a street name (`Elm Ave.`).
+    private static let streetReadings = Dictionary(
+        nemoEntries.filter { $0.context == .streetSuffix }.map { ($0.written, $0.spoken) }) { first, _ in first }
+
+    /// NeMo's words read anywhere that our table does not already read.
+    private static let otherReadings: [String: String] = {
+        let ours = Set(entries.map(\.written))
+        let titles = Set(titleReadings.keys.map { $0 + "." })
+        return Dictionary(
+            nemoEntries.filter {
+                $0.context == .anywhere(pattern: nil) && !nemoDeclined.contains($0.written)
+                    && !ours.contains($0.written) && !titles.contains($0.written)
+            }.map { ($0.written, $0.spoken) }) { first, _ in first }
+    }()
+
+    /// Capitalized words that start a sentence rather than continue a name, so
+    /// `Elm St. Then` ends at the street while `Neville St. Clair` is a name.
+    static let sentenceOpeners: Set<String> = [
+        "I", "A", "An", "The", "It", "He", "She", "We", "They", "You", "This", "That", "These", "Those",
+        "There", "Then", "But", "And", "Or", "So", "If", "In", "On", "At", "As", "Well", "Yes", "No",
+        "What", "When", "Why", "How", "My", "His", "Her", "Our", "Their",
+    ]
+
+    /// A word with its wrappers: `“Mr.` → `“`, `Mr`, `` ; `Jr.,` → ``, `Jr`, `,`.
+    private static let tokenRegex = try! NSRegularExpression(pattern: #"^([(\[“"‘']*)([A-Za-z]+)\.(?![A-Za-z])(.*)$"#)
+
+    /// `text` with its titles (`Mr. Smith`), street words (`Elm St.`) and the
+    /// abbreviations NeMo reads as words (`Mt.`, `Esq.`) spelled from the
+    /// table, so they never need a NeMo call. `St.` and `Dr.` are titles before
+    /// a name (`St. Paul`, `Neville St. Clair`) and street words after a
+    /// capitalized word or a house number otherwise (`Elm St.`).
+    static func spellWords(_ text: String) -> String {
+        guard text.contains(".") else { return text }
+        var words = text.components(separatedBy: " ")
+        for index in words.indices {
+            let word = words[index] as NSString
+            guard let match = tokenRegex.firstMatch(in: words[index], range: NSRange(location: 0, length: word.length))
+            else { continue }
+            let lead = word.substring(with: match.range(at: 1))
+            let stem = word.substring(with: match.range(at: 2))
+            let trail = word.substring(with: match.range(at: 3))
+            let previous = index > words.startIndex ? words[index - 1] : ""
+            let next = index + 1 < words.endIndex ? words[index + 1] : ""
+            let afterStreetName = lead.isEmpty
+                && previous.first.map { $0.isUppercase || $0.isNumber } == true
+                && previous.last.map { $0.isLetter || $0.isNumber } == true
+            let nextWord = String(next.drop { !$0.isLetter }.prefix { $0.isLetter })
+            let beforeName = nextWord.first?.isUppercase == true && !sentenceOpeners.contains(nextWord)
+
+            let spoken: String?
+            if let street = streetReadings[stem], afterStreetName, !beforeName {
+                spoken = street
+            } else if let title = titleReadings[stem], title.anywhere || beforeName {
+                spoken = title.spoken
+            } else {
+                spoken = otherReadings[stem + "."]
+            }
+            if let spoken { words[index] = lead + spoken + trail }
+        }
+        return words.joined(separator: " ")
+    }
 }

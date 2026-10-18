@@ -26,12 +26,23 @@ final class EnglishSpokenTextTests: XCTestCase {
 
     func testNeMoReadsWordsWithoutADigit() {
         let result = EnglishTextNormalizer.spokenText("In 1915, Mr. Gatsby met Mrs. Wilson.")
-        XCTAssertEqual(result.text, "In nineteen fifteen, mister Gatsby met misses Wilson.")
+        XCTAssertEqual(result.text, "In nineteen fifteen, mister Gatsby met mrs Wilson.")
         XCTAssertEqual(result.expansions.map(\.source), ["1915,", "Mr.", "Mrs."])
         XCTAssertEqual(spoken("She tagged @alice_maya today."), "She tagged at alice underscore maya today.")
         XCTAssertEqual(
             spoken("Email jane.doe@example.com today."), "Email jane dot doe at example dot com today.")
         XCTAssertEqual(spoken("It ended in World War II."), "It ended in World War two.")
+    }
+
+    func testTheTableReadsTitlesAndPlacesBeforeNeMo() {
+        XCTAssertEqual(spoken("Adm. Nelson met Prof. Lee."), "admiral Nelson met professor Lee.")
+        XCTAssertEqual(spoken("Mr. and Mrs. Bennet came."), "mister and mrs Bennet came.")
+        XCTAssertEqual(spoken("We went to St. Paul on Elm St. today."), "We went to Saint Paul on Elm Street today.")
+        XCTAssertEqual(spoken("Mr. Neville St. Clair lived on Elm St."), "mister Neville Saint Clair lived on Elm Street.")
+        XCTAssertEqual(spoken("Dr. Jones lives on Mulholland Dr. now."), "doctor Jones lives on Mulholland Drive now.")
+        XCTAssertEqual(spoken("It is at 12 Main Ave. and Fifth Ave."), "It is at twelve Main Avenue and Fifth Avenue.")
+        XCTAssertEqual(spoken("John Smith, Esq. climbed Mt. Rainier."), "John Smith, esquire climbed Mount Rainier.")
+        XCTAssertEqual(spoken("The dept. head asked the Prof. again."), "The department head asked the Prof. again.")
     }
 
     func testSentenceKeepsTheFullStopAnAbbreviationShares() {
