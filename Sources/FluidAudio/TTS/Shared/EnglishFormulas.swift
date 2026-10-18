@@ -20,7 +20,10 @@ enum EnglishFormulas {
             let spokenBase = base.first?.isNumber == true
                 ? EnglishTextNormalizer.normalize(base)
                 : base.map(String.init).joined(separator: " ")
-            return groups[1] + spokenBase + " " + power(exponent, negative: groups[3].hasPrefix("⁻"))
+            let negative = groups[3].hasPrefix("⁻")
+            // Nobody writes a power of one; a raised 1 is an index (`L¹` → "L one").
+            if exponent == 1, !negative { return groups[1] + spokenBase + " one" }
+            return groups[1] + spokenBase + " " + power(exponent, negative: negative)
         }
         result = replace(subscriptVariableRegex, in: result) { groups in
             number(groups[2], digits: subscripts).map { "\(groups[1]) \(EnglishTextNormalizer.normalize(String($0)))" }
@@ -97,8 +100,8 @@ enum EnglishFormulas {
         }
     }
 
-    /// A subscript after a single-letter variable (`x₁` → "x one").
-    private static let subscriptVariableRegex = regex(#"(?<![A-Za-z])([A-Za-z])([₀-₉]+)"#)
+    /// A subscript after a variable or a word (`x₁` → "x one", `log₁₀` → "log ten").
+    private static let subscriptVariableRegex = regex(#"(?<![A-Za-z])([A-Za-z]+)([₀-₉]+)"#)
 
     private static let superscripts: [Character: Character] = [
         "⁰": "0", "¹": "1", "²": "2", "³": "3", "⁴": "4", "⁵": "5", "⁶": "6", "⁷": "7", "⁸": "8", "⁹": "9",
