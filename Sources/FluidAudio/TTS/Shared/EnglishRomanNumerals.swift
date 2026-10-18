@@ -21,7 +21,8 @@ enum EnglishRomanNumerals {
         result = replace(afterNameRegex, in: result) { groups in
             let name = groups[1]
             guard let number = value(groups[2]), number < 40,
-                !EnglishAbbreviationTable.sentenceOpeners.contains(name)
+                !EnglishAbbreviationTable.sentenceOpeners.contains(name),
+                !(groups[2] == "I" && pronounVerbs.contains(groups[4].lowercased()))
             else { return nil }
             if regnalNames.contains(name) {
                 return "\(name) the \(ordinal(number))\(groups[3])"
@@ -86,9 +87,20 @@ enum EnglishRomanNumerals {
     }()
 
     /// A capitalized word, then an uppercase numeral of `I`, `V` and `X`
-    /// (1–39; `CL`, `DC`, `MIX` are left alone), then a possessive or nothing.
+    /// (1–39; `CL`, `DC`, `MIX` are left alone), then a possessive or nothing,
+    /// never another contraction (`Elizabeth I'm`); group 4 is the next word.
     private static let afterNameRegex = try! NSRegularExpression(
-        pattern: #"(?<![A-Za-z.])([A-Z][a-z]+) ([IVX]+)((?:['’]s)?)(?![A-Za-z0-9])"#)
+        pattern: #"(?<![A-Za-z.])([A-Z][a-z]+) ([IVX]+)((?:['’]s)?)(?![A-Za-z0-9'’])(?=\W*([A-Za-z]*))"#)
+
+    /// Verbs that agree with the pronoun `I` and not with a named third person,
+    /// so `Elizabeth I want` is the pronoun while `Elizabeth I wanted` and
+    /// `Elizabeth I rules` are the queen.
+    private static let pronounVerbs: Set<String> = [
+        "am", "want", "think", "know", "have", "do", "don", "can", "will", "would", "should", "could",
+        "shall", "must", "need", "feel", "guess", "hope", "mean", "see", "say", "believe", "love",
+        "like", "wish", "wonder", "suppose", "promise", "swear", "beg", "insist", "trust", "doubt",
+        "fear", "remember", "forget", "understand", "agree", "really", "never", "just", "also",
+    ]
 
     /// Monarchs' and popes' names, read with an ordinal (`Louis XIV` →
     /// "Louis the fourteenth"); other names read a cardinal.

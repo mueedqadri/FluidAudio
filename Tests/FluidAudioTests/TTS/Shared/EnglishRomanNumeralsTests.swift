@@ -28,12 +28,15 @@ final class EnglishRomanNumeralsTests: XCTestCase {
         XCTAssertEqual(spoken("Henry VIII married often."), "Henry the eighth married often.")
         XCTAssertEqual(spoken("Louis XIV's court was vast."), "Louis the fourteenth's court was vast.")
         XCTAssertEqual(spoken("Elizabeth I ruled long."), "Elizabeth the first ruled long.")
+        XCTAssertEqual(spoken("Henry I was crowned."), "Henry the first was crowned.")
         XCTAssertEqual(spoken("They watched Rocky II twice."), "They watched Rocky two twice.")
     }
 
     func testNumeralsWithoutContextStay() {
         XCTAssertEqual(spoken("I went home."), "I went home.")
         XCTAssertEqual(spoken("Malcolm X spoke."), "Malcolm X spoke.")
+        XCTAssertEqual(spoken("Elizabeth I want something."), "Elizabeth I want something.")
+        XCTAssertEqual(spoken("Mary I'm here and Henry I never knew."), "Mary I'm here and Henry I never knew.")
         XCTAssertEqual(spoken("Then I left, and MIX was playing."), "Then I left, and MIX was playing.")
         XCTAssertEqual(spoken("Give the patient an IV now."), "Give the patient an IV now.")
         XCTAssertEqual(spoken("In this chapter I have shown it."), "In this chapter I have shown it.")
