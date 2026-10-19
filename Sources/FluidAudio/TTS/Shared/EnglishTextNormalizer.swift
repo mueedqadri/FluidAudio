@@ -82,7 +82,9 @@ enum EnglishTextNormalizer {
                 let from = normalize(groups[1])
                 let to = normalize(groups[2])
                 guard !containsDigit(from), !containsDigit(to) else { return nil }
-                return "\(from) to \(to)"
+                // A percent after the range is the range's (`70–85%`).
+                let percent = groups.count > 3 && groups[3] == "%" ? " percent" : ""
+                return "\(from) to \(to)\(percent)"
             }
         }
         result = apply(Self.scaleSuffixRegex, to: result) { groups in
@@ -186,7 +188,7 @@ enum EnglishTextNormalizer {
 
     /// `7–9`, `2 — 4`, `1.5–2.5`: an en or em dash between numbers.
     private static let dashRangeRegex = regex(
-        #"(?<![A-Za-z0-9.:/])([0-9]+(?:\.[0-9]+)?)\s*[–—]\s*([0-9]+(?:\.[0-9]+)?)(?![:/])"# + numberEnd)
+        #"(?<![A-Za-z0-9.:/])([0-9]+(?:\.[0-9]+)?)\s*[–—]\s*([0-9]+(?:\.[0-9]+)?)(%?)(?![:/])"# + numberEnd)
 
     /// `1914-1918`: a hyphen between two years.
     private static let yearRangeRegex = regex(
@@ -195,7 +197,7 @@ enum EnglishTextNormalizer {
     /// `45-67`, `58-7`: a hyphen between two short numbers. A phone number
     /// (`555-0199`), an ISO date or an ISBN has a longer part or more hyphens.
     private static let hyphenRangeRegex = regex(
-        #"(?<![A-Za-z0-9.:/\-])([0-9]{1,3})-([0-9]{1,3})(?![A-Za-z0-9:/\-])(?![.,][0-9])"#)
+        #"(?<![A-Za-z0-9.:/\-])([0-9]{1,3})-([0-9]{1,3})(%?)(?![A-Za-z0-9:/\-])(?![.,][0-9])"#)
 
     /// `1.3B`, `2.5M`: a decimal with a scale letter. A bare `3B` may be a room.
     private static let scaleSuffixRegex = regex(
