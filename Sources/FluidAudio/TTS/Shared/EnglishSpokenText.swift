@@ -27,13 +27,16 @@ extension EnglishTextNormalizer {
     /// misreads or leaves silent (`cf.`, `hrs`, `2019b`, ranges, `±`, `×`);
     /// digits NeMo leaves alone go through ``normalize(_:)``.
     static func spokenText(_ text: String) -> EnglishSpokenText {
+        let text = EnglishOldMoney.joiningSpacedCurrency(text)
         var pieces = text.split(whereSeparator: \.isWhitespace).map { Piece(text: String($0), source: nil) }
         pieces = rewrite(pieces, keepingOnlyDigitRewrites: false) {
             spellRangesAndSymbols(
                 EnglishGreekLetters.spell(
                     EnglishReferenceAbbreviations.spell(
                         EnglishGluedNumbers.spell(
-                            EnglishFormulas.spell(EnglishRomanNumerals.spell(EnglishAbbreviationTable.spellWords($0)))))))
+                            EnglishFormulas.spell(
+                                EnglishRomanNumerals.spell(
+                                    EnglishAbbreviationTable.spellWords(EnglishOldMoney.spell($0))))))))
         }
         pieces = rewrite(pieces, keepingOnlyDigitRewrites: false, when: nemoMayRead, holding: nemoMisreads) {
             // NeMo reads `=` as "equal sign" when a percent sits on its left, and
