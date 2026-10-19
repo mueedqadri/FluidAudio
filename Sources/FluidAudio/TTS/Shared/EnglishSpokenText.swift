@@ -32,7 +32,8 @@ extension EnglishTextNormalizer {
             spellRangesAndSymbols(
                 EnglishGreekLetters.spell(
                     EnglishReferenceAbbreviations.spell(
-                        EnglishFormulas.spell(EnglishRomanNumerals.spell(EnglishAbbreviationTable.spellWords($0))))))
+                        EnglishGluedNumbers.spell(
+                            EnglishFormulas.spell(EnglishRomanNumerals.spell(EnglishAbbreviationTable.spellWords($0)))))))
         }
         pieces = rewrite(pieces, keepingOnlyDigitRewrites: false, when: nemoMayRead, holding: nemoMisreads) {
             // NeMo reads `=` as "equal sign" when a percent sits on its left, and
