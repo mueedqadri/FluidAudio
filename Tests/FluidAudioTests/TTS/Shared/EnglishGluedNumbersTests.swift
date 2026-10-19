@@ -19,7 +19,8 @@ final class EnglishGluedNumbersTests: XCTestCase {
     func testSerialCodesStay() {
         for text in ["Order part TV-40-E41 now.", "The part CS581676 ships.", "During COVID-19 it closed.",
                      "He lived at 221B, Baker Street.", "See ANSI Z39.48-1984 for it.",
-                     "Apply 0001-add-limit-to-log-function.patch first."] {
+                     "Apply 0001-add-limit-to-log-function.patch first.", "Pages S85–94 and R77–R87.",
+                     "The 50/101/152-layer nets."] {
             XCTAssertEqual(EnglishGluedNumbers.spell(text), text)
         }
     }
