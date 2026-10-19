@@ -90,7 +90,9 @@ enum EnglishFormulas {
     /// left for NeMo); groups 2 and 3 are a letter or a number base; group 5 a
     /// letter glued after the power.
     private static let powerRegex = regex(
-        #"(?<![A-Za-z0-9.])((?:[0-9]+\s?)?)(?:(?<![A-Za-z])([A-Za-z]{1,2}|\))|(?<![A-Za-z0-9.])([0-9]+))(⁻?[⁰¹²³⁴⁵⁶⁷⁸⁹]+)(?=([A-Za-z]?))"#)
+        #"(?<![A-Za-z0-9.])((?:[0-9]+\s?)?)(?:(?<![A-Za-z])([A-Za-z]{1,2}|\)|"#
+            + EnglishGreekLetters.letterPattern
+            + #")|(?<![A-Za-z0-9.])([0-9]+))(⁻?[⁰¹²³⁴⁵⁶⁷⁸⁹]+)(?=([A-Za-z]?))"#)
 
     /// Units NeMo reads with their power after a number ("three square meters").
     private static let unitBases: Set<String> = ["m", "cm", "mm", "km", "ft", "in", "mi", "yd"]
@@ -107,7 +109,8 @@ enum EnglishFormulas {
     }
 
     /// A subscript after a variable or a word (`x₁` → "x one", `log₁₀` → "log ten").
-    private static let subscriptVariableRegex = regex(#"(?<![A-Za-z])([A-Za-z]+)([₀-₉]+)"#)
+    private static let subscriptVariableRegex = regex(
+        #"(?<![A-Za-z])([A-Za-z]+|"# + EnglishGreekLetters.letterPattern + #")([₀-₉]+)"#)
 
     private static let superscripts: [Character: Character] = [
         "⁰": "0", "¹": "1", "²": "2", "³": "3", "⁴": "4", "⁵": "5", "⁶": "6", "⁷": "7", "⁸": "8", "⁹": "9",
