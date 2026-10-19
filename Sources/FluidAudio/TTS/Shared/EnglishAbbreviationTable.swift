@@ -25,6 +25,10 @@ enum EnglishAbbreviationTable {
             /// A unit after a number (`3 hrs`), plural after any number but a
             /// lone `1`; `written` matches with or without `s` and a period.
             case afterNumber(singular: String)
+            /// A unit symbol after a number and a space (`30 m`, `10 W`), matched
+            /// exactly and with its case, since alone it is a letter or a word.
+            /// One with a power (`3 m²`) is NeMo's ("three square meters").
+            case unitSymbol(singular: String)
         }
 
         /// The written form: without its period for titles and reference
@@ -34,7 +38,7 @@ enum EnglishAbbreviationTable {
         let context: Context
     }
 
-    static let entries: [Entry] = titles + beforeNumber + anywhere + afterNumber
+    static let entries: [Entry] = titles + beforeNumber + anywhere + afterNumber + unitSymbols
 
     /// `Mrs` reads the lexicon's own `mrs` entry (`mˈɪsɪz`): canonical Misaki
     /// resolves the stem, and the `missus` word entry carries a different vowel.
@@ -81,6 +85,34 @@ enum EnglishAbbreviationTable {
         ("hr", "hours", "hour"), ("min", "minutes", "minute"), ("sec", "seconds", "second"),
     ].map { Entry(written: $0.0, spoken: $0.1, context: .afterNumber(singular: $0.2)) }
 
+    /// SI symbols NeMo reads as letters (`30 m` → "thirty M") or leaves alone
+    /// (`8 TeV`, `20 µl`). Not `A` or `K`: after a number they are as often a
+    /// figure panel (`Fig. 2 A`) or a thousand (`100 K`). Electron-volt units
+    /// are read as letters, as physicists say them.
+    private static let unitSymbols: [Entry] = {
+        var units: [(String, String, String)] = [
+            ("m", "meters", "meter"), ("mm", "millimeters", "millimeter"), ("nm", "nanometers", "nanometer"),
+            ("s", "seconds", "second"), ("ms", "milliseconds", "millisecond"), ("ns", "nanoseconds", "nanosecond"),
+            ("W", "watts", "watt"), ("kW", "kilowatts", "kilowatt"), ("mW", "milliwatts", "milliwatt"),
+            ("V", "volts", "volt"), ("kV", "kilovolts", "kilovolt"), ("mV", "millivolts", "millivolt"),
+            ("Hz", "hertz", "hertz"), ("kHz", "kilohertz", "kilohertz"), ("MHz", "megahertz", "megahertz"),
+            ("GHz", "gigahertz", "gigahertz"), ("mL", "milliliters", "milliliter"), ("ml", "milliliters", "milliliter"),
+            ("ng", "nanograms", "nanogram"), ("mM", "millimolar", "millimolar"), ("nM", "nanomolar", "nanomolar"),
+            ("in.", "inches", "inch"),
+            ("eV", "E V", "E V"), ("keV", "K E V", "K E V"), ("MeV", "M E V", "M E V"), ("GeV", "G E V", "G E V"),
+            ("TeV", "T E V", "T E V"),
+        ]
+        // Micro, written with the micro sign or the Greek mu.
+        for micro in ["µ", "μ"] {
+            units += [
+                (micro + "m", "micrometers", "micrometer"), (micro + "s", "microseconds", "microsecond"),
+                (micro + "l", "microliters", "microliter"), (micro + "L", "microliters", "microliter"),
+                (micro + "g", "micrograms", "microgram"), (micro + "M", "micromolar", "micromolar"),
+            ]
+        }
+        return units.map { Entry(written: $0.0, spoken: $0.1, context: .unitSymbol(singular: $0.2)) }
+    }()
+
     /// Written form → spoken words for the entries read in `context`.
     static func spokenForms(in context: Entry.Context) -> [String: String] {
         Dictionary(entries.filter { $0.context == context }.map { ($0.written, $0.spoken) }) { first, _ in first }
@@ -102,8 +134,17 @@ enum EnglishAbbreviationTable {
             guard case .afterNumber(let singular) = entry.context else { return nil }
             return (NSRegularExpression.escapedPattern(for: entry.written), entry.spoken, singular)
         }
+        let symbols: [(symbol: String, plural: String, singular: String)] = entries.compactMap { entry in
+            guard case .unitSymbol(let singular) = entry.context else { return nil }
+            return (NSRegularExpression.escapedPattern(for: entry.written), entry.spoken, singular)
+        }
+        // Any letter or digit, accented or raised, continues the word (`mètres`, `m²`);
+        // a bracket or slash makes it a variable or a rate (`30 s(s−x)`, `20 m/s`).
+        let symbolEnd = #"(?![\p{L}\p{N}⁻(/])"#
         return units.map { (#"(?<=(?<![0-9.])1 )"# + $0.stem + #"s?\.?(?![A-Za-z])"#, $0.singular) }
             + units.map { (#"(?<=[0-9] )"# + $0.stem + #"s?\.?(?![A-Za-z])"#, $0.plural) }
+            + symbols.map { (#"(?<=(?<![0-9.])1 )"# + $0.symbol + symbolEnd, $0.singular) }
+            + symbols.map { (#"(?<=[0-9] )"# + $0.symbol + symbolEnd, $0.plural) }
     }
 
     // MARK: - Words read before NeMo

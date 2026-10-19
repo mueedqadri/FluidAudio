@@ -30,8 +30,8 @@ extension EnglishTextNormalizer {
         var pieces = text.split(whereSeparator: \.isWhitespace).map { Piece(text: String($0), source: nil) }
         pieces = rewrite(pieces, keepingOnlyDigitRewrites: false) {
             spellRangesAndSymbols(
-                EnglishReferenceAbbreviations.spell(
-                    EnglishGreekLetters.spell(
+                EnglishGreekLetters.spell(
+                    EnglishReferenceAbbreviations.spell(
                         EnglishFormulas.spell(EnglishRomanNumerals.spell(EnglishAbbreviationTable.spellWords($0))))))
         }
         pieces = rewrite(pieces, keepingOnlyDigitRewrites: false, when: nemoMayRead, holding: nemoMisreads) {

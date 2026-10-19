@@ -15,7 +15,7 @@ final class EnglishAbbreviationTableNeMoTests: XCTestCase {
             case .anywhere: sentence = "It was \(entry.written) today."
             case .streetSuffix: sentence = "It is at 12 Elm \(entry.written). today."
             case .title: sentence = "We met \(entry.written). Smith today."
-            case .beforeNumber, .afterNumber: continue
+            case .beforeNumber, .afterNumber, .unitSymbol: continue
             }
             let read = NemoTextNormalizer.normalize(sentence, language: .english)
             XCTAssertTrue(read.contains(entry.spoken), "\(entry.written): \"\(read)\"")
