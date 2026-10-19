@@ -18,9 +18,9 @@ enum EnglishGluedNumbers {
     }
 
     /// `A100`, `B12`, `Q3`: one capital letter and a number, not part of a dotted
-    /// code (`Z39.48`).
+    /// code (`Z39.48`). `V2` is the version rule's ("version two").
     private static let letterNumberRegex = regex(
-        #"(?<![A-Za-z0-9.\-])([A-Z])([0-9]{1,4})(?![A-Za-z0-9\-])(?![.,][0-9])"#)
+        #"(?<![A-Za-z0-9.\-])([A-UW-Z])([0-9]{1,4})(?![A-Za-z0-9\-])(?![.,][0-9])"#)
     /// `1202-layer`, `1990-era`: a number of three or four digits, without a
     /// leading zero, before one hyphenated word; a longer chain is a file name
     /// (`0001-add-limit.patch`).

@@ -29,10 +29,10 @@ extension EnglishTextNormalizer {
     static func spokenText(_ text: String) -> EnglishSpokenText {
         var pieces = text.split(whereSeparator: \.isWhitespace).map { Piece(text: String($0), source: nil) }
         pieces = rewrite(pieces, keepingOnlyDigitRewrites: false) {
-            EnglishGluedNumbers.spell(
-                spellRangesAndSymbols(
-                    EnglishGreekLetters.spell(
-                        EnglishReferenceAbbreviations.spell(
+            spellRangesAndSymbols(
+                EnglishGreekLetters.spell(
+                    EnglishReferenceAbbreviations.spell(
+                        EnglishGluedNumbers.spell(
                             EnglishFormulas.spell(EnglishRomanNumerals.spell(EnglishAbbreviationTable.spellWords($0)))))))
         }
         pieces = rewrite(pieces, keepingOnlyDigitRewrites: false, when: nemoMayRead, holding: nemoMisreads) {
