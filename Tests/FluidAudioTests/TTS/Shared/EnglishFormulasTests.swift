@@ -34,5 +34,8 @@ final class EnglishFormulasTests: XCTestCase {
         XCTAssertEqual(spoken("Let x₁ be small."), "Let x one be small.")
         XCTAssertEqual(spoken("A clamped L¹ loss."), "A clamped L one loss.")
         XCTAssertEqual(spoken("Smoothing in log₁₀ units."), "Smoothing in log ten units.")
+        XCTAssertEqual(spoken("Then AB² equals 4AC²."), "Then A B squared equals four A C squared.")
+        XCTAssertEqual(spoken("It falls s = 16t² feet."), "It falls s equals sixteen t squared feet.")
+        XCTAssertEqual(spoken("Take x²a here."), "Take x squared a here.")
     }
 }

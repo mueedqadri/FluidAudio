@@ -12,18 +12,22 @@ enum EnglishFormulas {
         else { return text }
         var result = replace(formulaRegex, in: text) { groups in formula(groups[1]) }
         result = replace(powerRegex, in: result) { groups in
-            guard let exponent = number(groups[3], digits: superscripts) else { return nil }
-            let base = groups[2]
-            if base.first?.isNumber == false, groups[1].contains(where: \.isNumber), unitBases.contains(base) {
-                return nil
-            }
-            let spokenBase = base.first?.isNumber == true
+            guard let exponent = number(groups[4], digits: superscripts) else { return nil }
+            let coefficient = groups[1]
+            let isNumberBase = groups[2].isEmpty
+            let base = isNumberBase ? groups[3] : groups[2]
+            if !isNumberBase, coefficient.contains(where: \.isNumber), unitBases.contains(base) { return nil }
+            let spokenBase = isNumberBase
                 ? EnglishTextNormalizer.normalize(base)
                 : base.map(String.init).joined(separator: " ")
-            let negative = groups[3].hasPrefix("⁻")
+            // A coefficient reads as its number (`4AC²` → "four A C squared").
+            let spokenCoefficient = coefficient.isEmpty
+                ? "" : EnglishTextNormalizer.normalize(coefficient.trimmingCharacters(in: .whitespaces)) + " "
+            let negative = groups[4].hasPrefix("⁻")
             // Nobody writes a power of one; a raised 1 is an index (`L¹` → "L one").
-            if exponent == 1, !negative { return groups[1] + spokenBase + " one" }
-            return groups[1] + spokenBase + " " + power(exponent, negative: negative)
+            let spokenPower = exponent == 1 && !negative ? "one" : power(exponent, negative: negative)
+            // A letter glued after the power starts the next word (`x²a`).
+            return spokenCoefficient + spokenBase + " " + spokenPower + (groups[5].isEmpty ? "" : " ")
         }
         result = replace(subscriptVariableRegex, in: result) { groups in
             number(groups[2], digits: subscripts).map { "\(groups[1]) \(EnglishTextNormalizer.normalize(String($0)))" }
@@ -81,10 +85,12 @@ enum EnglishFormulas {
     // MARK: - Powers
 
     /// A base and a superscript exponent: one or two letters (`x²`, `mc²`), a
-    /// closing bracket (`(a+b)²`) or a number (`10⁻³`); group 1 is the number
-    /// before a unit (`3 m²`), which NeMo reads.
+    /// closing bracket (`(a+b)²`) or a number (`10⁻³`). Group 1 is a number
+    /// before the base, a coefficient (`4AC²`, `3t²`) or a unit's count (`3 m²`,
+    /// left for NeMo); groups 2 and 3 are a letter or a number base; group 5 a
+    /// letter glued after the power.
     private static let powerRegex = regex(
-        #"((?:[0-9]+\s)?)(?<![A-Za-z0-9])([A-Za-z]{1,2}|\)|[0-9]+)(⁻?[⁰¹²³⁴⁵⁶⁷⁸⁹]+)"#)
+        #"(?<![A-Za-z0-9.])((?:[0-9]+\s?)?)(?:(?<![A-Za-z])([A-Za-z]{1,2}|\))|(?<![A-Za-z0-9.])([0-9]+))(⁻?[⁰¹²³⁴⁵⁶⁷⁸⁹]+)(?=([A-Za-z]?))"#)
 
     /// Units NeMo reads with their power after a number ("three square meters").
     private static let unitBases: Set<String> = ["m", "cm", "mm", "km", "ft", "in", "mi", "yd"]
