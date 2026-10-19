@@ -14,6 +14,7 @@ final class EnglishGreekLettersTests: XCTestCase {
         XCTAssertEqual(spoken("A 2σ deviation."), "A two sigma deviation.")
         XCTAssertEqual(spoken("The channel H→ γγ is clean."), "The channel H→ gamma gamma is clean.")
         XCTAssertEqual(spoken("We used α = 0.3 here."), "We used alpha equals zero point three here.")
+        XCTAssertEqual(spoken("The update ∆Φ is small."), "The update delta phi is small.")
     }
 
     func testPowersAndSubscriptsOfGreekLetters() {

@@ -34,7 +34,7 @@ enum EnglishGreekLetters {
     static let letterPattern = "[\\u0391-\\u03A9\\u03B1-\\u03C9\\u03D1\\u03D5\\u03D6\\u03F1\\u03F5\\u03C2]"
 
     /// A number glued before (group 1), then a run of Greek script with its accents (group 2).
-    private static let runRegex = try! NSRegularExpression(pattern: #"(?<![0-9.])([0-9]+)?([\p{Greek}\p{Mn}]+)"#)
+    private static let runRegex = try! NSRegularExpression(pattern: #"(?<![0-9.])([0-9]+)?([\p{Greek}\p{Mn}∆]+)"#)
 
     private static func isWordCharacter(_ unit: unichar) -> Bool {
         guard let scalar = Unicode.Scalar(unit) else { return false }
@@ -55,8 +55,8 @@ enum EnglishGreekLetters {
             names[Character(upper)] = name
             names[Character(lower)] = name
         }
-        // Variant forms mathematics uses.
-        for (variant, name) in [("ϑ", "theta"), ("ϕ", "phi"), ("ϖ", "pi"), ("ϱ", "rho"), ("ϵ", "epsilon"), ("ς", "sigma")] {
+        // Variant forms mathematics uses, and the increment sign papers set for a capital delta.
+        for (variant, name) in [("ϑ", "theta"), ("ϕ", "phi"), ("ϖ", "pi"), ("ϱ", "rho"), ("ϵ", "epsilon"), ("ς", "sigma"), ("∆", "delta")] {
             names[Character(variant)] = name
         }
         return names
