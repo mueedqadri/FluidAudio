@@ -17,10 +17,15 @@ enum EnglishGluedNumbers {
         return result
     }
 
-    /// `A100`, `B12`, `Q3`: one capital letter and a number.
-    private static let letterNumberRegex = regex(#"(?<![A-Za-z0-9.\-])([A-Z])([0-9]{1,4})(?![A-Za-z0-9\-])"#)
-    /// `1202-layer`, `1990-era`: a number of three or four digits before a hyphenated word.
-    private static let numberWordRegex = regex(#"(?<![A-Za-z0-9.,\-])([0-9]{3,4})(?=-[a-z])"#)
+    /// `A100`, `B12`, `Q3`: one capital letter and a number, not part of a dotted
+    /// code (`Z39.48`).
+    private static let letterNumberRegex = regex(
+        #"(?<![A-Za-z0-9.\-])([A-Z])([0-9]{1,4})(?![A-Za-z0-9\-])(?![.,][0-9])"#)
+    /// `1202-layer`, `1990-era`: a number of three or four digits, without a
+    /// leading zero, before one hyphenated word; a longer chain is a file name
+    /// (`0001-add-limit.patch`).
+    private static let numberWordRegex = regex(
+        #"(?<![A-Za-z0-9.,\-])([1-9][0-9]{2,3})(?=-[a-z]+(?![A-Za-z0-9.\-]))"#)
 
     private static func regex(_ pattern: String) -> NSRegularExpression {
         try! NSRegularExpression(pattern: pattern, options: [])
