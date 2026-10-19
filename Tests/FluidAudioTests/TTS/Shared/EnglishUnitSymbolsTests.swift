@@ -30,5 +30,7 @@ final class EnglishUnitSymbolsTests: XCTestCase {
     func testLettersAloneStay() {
         XCTAssertEqual(spoken("See Fig. 2 A and the letter m."), "See figure two A and the letter m.")
         XCTAssertEqual(spoken("Come in and sit."), "Come in and sit.")
+        XCTAssertFalse(spoken("The area is √ 30 s(s−x) here.").contains("seconds"))
+        XCTAssertFalse(spoken("It moves at 20 m/s now.").contains("meters/"))
     }
 }

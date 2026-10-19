@@ -138,8 +138,9 @@ enum EnglishAbbreviationTable {
             guard case .unitSymbol(let singular) = entry.context else { return nil }
             return (NSRegularExpression.escapedPattern(for: entry.written), entry.spoken, singular)
         }
-        // Any letter or digit, accented or raised, continues the word (`mètres`, `m²`).
-        let symbolEnd = #"(?![\p{L}\p{N}⁻])"#
+        // Any letter or digit, accented or raised, continues the word (`mètres`, `m²`);
+        // a bracket or slash makes it a variable or a rate (`30 s(s−x)`, `20 m/s`).
+        let symbolEnd = #"(?![\p{L}\p{N}⁻(/])"#
         return units.map { (#"(?<=(?<![0-9.])1 )"# + $0.stem + #"s?\.?(?![A-Za-z])"#, $0.singular) }
             + units.map { (#"(?<=[0-9] )"# + $0.stem + #"s?\.?(?![A-Za-z])"#, $0.plural) }
             + symbols.map { (#"(?<=(?<![0-9.])1 )"# + $0.symbol + symbolEnd, $0.singular) }
