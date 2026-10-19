@@ -17,6 +17,7 @@ final class EnglishOldMoneyTests: XCTestCase {
         XCTAssertEqual(spoken("It grew to £259. 7s. 6d. by then."),
                        "It grew to two hundred fifty nine pounds, seven shillings and six pence by then.")
         XCTAssertEqual(spoken("It cost 3s. 6d. new."), "It cost three shillings and six pence new.")
+        XCTAssertEqual(spoken("All except £3, 10s. each."), "All except three pounds, ten shillings each.")
         XCTAssertEqual(spoken("It came to £ 88 10_s_., while"), "It came to eighty eight pounds, ten shillings, while")
     }
 

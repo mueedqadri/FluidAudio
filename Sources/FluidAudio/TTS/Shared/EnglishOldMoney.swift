@@ -35,10 +35,10 @@ enum EnglishOldMoney {
     // MARK: - Forms
 
     /// `£983,254:11:9¼`: pounds, shillings and pence with colons.
-    private static let colonRegex = regex(#"£([0-9][0-9,]*):\s?([0-9]{1,2}):\s?([0-9]{1,2})([¼½¾]?)"#)
+    private static let colonRegex = regex(#"£([0-9](?:[0-9,]*[0-9])?):\s?([0-9]{1,2}):\s?([0-9]{1,2})([¼½¾]?)"#)
     /// `£259. 7s. 6d.`, `£88 10s.`: shillings, and pence if given, after a pound amount.
     private static let poundsRegex = regex(
-        #"£([0-9][0-9,]*)\.?\s+([0-9]{1,2})_?s_?\.(?:\s+([0-9]{1,2})([¼½¾]?)_?d_?\.)?"#)
+        #"£([0-9](?:[0-9,]*[0-9])?)[.,]?\s+([0-9]{1,2})_?s_?\.(?:\s+([0-9]{1,2})([¼½¾]?)_?d_?\.)?"#)
     /// `3s. 6d.`: a shillings-and-pence pair.
     private static let pairRegex = regex(#"(?<![0-9£.])([0-9]{1,2})_?s_?\.\s+([0-9]{1,2})([¼½¾]?)_?d_?\."#)
 
