@@ -58,7 +58,7 @@ final class EnglishSpokenTextTests: XCTestCase {
         XCTAssertEqual(spoken("It took 3 hrs."), "It took three hours.")
         XCTAssertEqual(spoken("Plates, etc. and cups."), "Plates, etc. and cups.")
         XCTAssertEqual(spoken("Do you dance at St. James’s?"), "Do you dance at Saint James’s?")
-        XCTAssertEqual(spoken("Love to her mother.--Yours, Mr. Collins."), "Love to her mother.--Yours, mister Collins.")
+        XCTAssertEqual(spoken("Love to her mother.--Yours, Mr. Collins."), "Love to her mother.—Yours, mister Collins.")
         XCTAssertEqual(spoken("They came to ’Frisco with Mr. Wolfsheim."), "They came to ’Frisco with mister Wolfsheim.")
         XCTAssertEqual(spoken("Exports for Jan.-Mar. fell."), "Exports for Jan.-Mar. fell.")
         XCTAssertEqual(spoken("Bring a pen and/or a pencil (he/she)."), "Bring a pen and/or a pencil (he/she).")
@@ -122,6 +122,15 @@ final class EnglishSpokenTextTests: XCTestCase {
         XCTAssertEqual(spoken("The 1.3B model."), "The one point three billion model.")
         XCTAssertEqual(spoken("A budget of $30 m."), "A budget of thirty million dollars.")
         XCTAssertEqual(spoken("It cost £2.5 m and 3 m of rope."), "It cost two point five million pounds and three meters of rope.")
+    }
+
+    /// Two hyphens after a word are a typewriter em dash; options and rules stay.
+    func testTypewriterDashesBecomeEmDashes() {
+        XCTAssertEqual(spoken("It was indeed,--a mixture of pride."), "It was indeed,—a mixture of pride.")
+        XCTAssertEqual(spoken("And in the sect--fairly large."), "And in the sect—fairly large.")
+        XCTAssertEqual(spoken("She was a friend!--always."), "She was a friend!—always.")
+        XCTAssertEqual(spoken("Run git --version and git checkout -- file."), "Run git --version and git checkout -- file.")
+        XCTAssertEqual(spoken("A rule ----- and a cell +---+ and <!-- note -->."), "A rule ----- and a cell +---+ and <!-- note -->.")
     }
 
     func testHyphensThatAreNotRangesStay() {

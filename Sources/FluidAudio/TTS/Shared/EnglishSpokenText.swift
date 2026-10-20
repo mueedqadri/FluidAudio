@@ -12,7 +12,7 @@ extension EnglishTextNormalizer {
     /// misreads or leaves silent (`cf.`, `hrs`, `2019b`, ranges, `±`, `×`);
     /// digits NeMo leaves alone go through ``normalize(_:)``.
     static func spokenText(_ text: String) -> SpokenText {
-        let text = EnglishOldMoney.joiningSpacedCurrency(text)
+        let text = typewriterDashes(EnglishOldMoney.joiningSpacedCurrency(text))
         var pieces = text.split(whereSeparator: \.isWhitespace).map { Piece(text: String($0), source: nil) }
         pieces = rewrite(pieces, keepingOnlyDigitRewrites: false, leavingOpen: true, with: editWrittenForms)
         pieces = rewrite(pieces, keepingOnlyDigitRewrites: false) {

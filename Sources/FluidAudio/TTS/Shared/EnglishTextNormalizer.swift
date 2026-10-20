@@ -83,6 +83,17 @@ enum EnglishTextNormalizer {
         return result
     }
 
+    /// A typewriter dash, two hyphens after a word or its punctuation
+    /// (`indeed,--a`, `sect--fairly`), as old books and plain-text editions set
+    /// an em dash: written as one, which the phonemizer reads as a pause rather
+    /// than gluing the words or naming the letter (`--a` → "A"). A token that
+    /// starts with them (`--version`), longer rules (`---`, `+-----+`) and HTML
+    /// comments stay.
+    static func typewriterDashes(_ text: String) -> String {
+        text.replacingOccurrences(
+            of: #"(?<=[\p{L}\p{N}.,;:!?'’"”)\]])(?<!<!)--(?![->])"#, with: "—", options: .regularExpression)
+    }
+
     /// Written forms NeMo misreads, rewritten as ones it reads with their
     /// context: a range with a dash or hyphen (`50–175 mg` → `50 to 175 mg`,
     /// `1914-1918`, `70–85%`) and a scale letter (`1.3B` → `1.3 billion`).
