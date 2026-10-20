@@ -189,7 +189,8 @@ struct KokoroAneEnglishPhonemizer: Sendable {
     // MARK: - PDF ligature repair
 
     /// Words a PDF broke at a `fi`, `fl` or `ff` ligature: split after it
-    /// (`Confl icts`) or extracted as a bare `f` (`defned`, `frst`). Returns
+    /// (`Confl icts`), or a `fi` extracted as a bare `f` (`defned`, `frst`;
+    /// four letters or more, so `ffe` stays). Returns
     /// the word to read for a token and the tokens a split word absorbs; the
     /// segment keeps the written token, so word timings stay on the page.
     /// A repair is made only when the lexicon lacks the written form and
@@ -222,16 +223,14 @@ struct KokoroAneEnglishPhonemizer: Sendable {
                 }
             }
 
-            guard token.count >= 3, token.contains(where: { $0 == "f" || $0 == "F" }), !isKnown(token) else {
+            guard token.count >= 4, token.contains(where: { $0 == "f" || $0 == "F" }), !isKnown(token) else {
                 continue
             }
             var repaired: Set<String> = []
             for position in token.indices where token[position] == "f" || token[position] == "F" {
                 let after = token.index(after: position)
-                for letter in ["i", "l"] {
-                    let candidate = String(token[..<after]) + letter + String(token[after...])
-                    if isKnown(candidate) { repaired.insert(candidate) }
-                }
+                let candidate = String(token[..<after]) + "i" + String(token[after...])
+                if isKnown(candidate) { repaired.insert(candidate) }
             }
             if repaired.count == 1, let word = repaired.first { readings[index] = word }
         }
