@@ -99,6 +99,23 @@ final class EnglishSpokenTextTests: XCTestCase {
         XCTAssertTrue(spoken("Open 6:15-6:30 daily.").contains("six fifteen to six thirty"))
     }
 
+    /// A range is edited to `from to to` and NeMo reads it with what follows,
+    /// while word timings stay on the written words.
+    func testRangesKeepTheirUnitsAndDates() {
+        let caffeine = EnglishTextNormalizer.spokenText("A cup holds 50–175 mg of caffeine.")
+        XCTAssertEqual(caffeine.text, "A cup holds fifty to one hundred seventy five milligrams of caffeine.")
+        XCTAssertEqual(caffeine.expansions.map(\.source), ["50–175 mg"])
+        XCTAssertEqual(spoken("Doses of 3.5–4.2 kg."), "Doses of three point five to four point two kilograms.")
+        XCTAssertEqual(spoken("Keep it at 10–20 °C for an hour."), "Keep it at ten to twenty degrees Celsius for an hour.")
+        XCTAssertTrue(spoken("Held on February 14-16, 1919.").contains("february fourteenth to"))
+    }
+
+    func testScaleLettersAndMoneyScales() {
+        XCTAssertEqual(spoken("The 1.3B model."), "The one point three billion model.")
+        XCTAssertEqual(spoken("A budget of $30 m."), "A budget of thirty million dollars.")
+        XCTAssertEqual(spoken("It cost £2.5 m and 3 m of rope."), "It cost two point five million pounds and three meters of rope.")
+    }
+
     func testHyphensThatAreNotRangesStay() {
         XCTAssertFalse(spoken("Call 555-0199 now.").contains(" to "))
         XCTAssertFalse(spoken("It was on 2009-02-26 here.").contains(" to "))

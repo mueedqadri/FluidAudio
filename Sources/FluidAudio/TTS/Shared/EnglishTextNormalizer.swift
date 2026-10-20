@@ -49,11 +49,11 @@ enum EnglishTextNormalizer {
     }
 
     /// Forms NeMo reads wrongly or not at all, in spoken words: time signatures
-    /// (`5/4 time`, which NeMo reads as a fraction), version and section numbers
-    /// (`v2.5.0`, `3.1.2`), ranges (`7–9`, `pp. 45-67`, `1914-1918`), scale
-    /// suffixes (`1.3B`), clock suffixes (`5 AM`), comparison and math symbols
-    /// beside a number (`p < 0.05`, `± 0.2`, `2×`, `n = 120`) and note
-    /// accidentals (`B♭`). The numbers a symbol sits beside are left for NeMo.
+    /// (`5/4 time`, which NeMo reads as a fraction), version and section
+    /// numbers (`v2.5.0`, `3.1.2`), clock ranges, clock suffixes (`5 AM`),
+    /// comparison and math symbols beside a number (`p < 0.05`, `± 0.2`, `2×`,
+    /// `n = 120`) and note accidentals (`B♭`). The numbers a symbol sits beside
+    /// are left for NeMo.
     static func spellRangesAndSymbols(_ text: String) -> String {
         var result = text
         result = apply(Self.timeSignatureRegex, to: result) { groups in
@@ -77,28 +77,29 @@ enum EnglishTextNormalizer {
             guard !containsDigit(from), !containsDigit(to) else { return nil }
             return "\(from) to \(to)"
         }
+        for (regex, spoken) in Self.symbolWords {
+            result = apply(regex, to: result, transform: spoken)
+        }
+        return result
+    }
+
+    /// Written forms NeMo misreads, rewritten as ones it reads with their
+    /// context: a range with a dash or hyphen (`50–175 mg` → `50 to 175 mg`,
+    /// `1914-1918`, `70–85%`) and a scale letter (`1.3B` → `1.3 billion`).
+    /// The numbers stay digits, so NeMo reads them with the unit beside them.
+    static func editWrittenForms(_ text: String) -> String {
+        var result = text
         for range in [Self.dashRangeRegex, Self.yearRangeRegex, Self.hyphenRangeRegex] {
             result = apply(range, to: result) { groups in
-                let from = normalize(groups[1])
-                let to = normalize(groups[2])
-                guard !containsDigit(from), !containsDigit(to) else { return nil }
-                // A percent after the range is the range's (`70–85%`).
-                let percent = groups.count > 3 && groups[3] == "%" ? " percent" : ""
-                return "\(from) to \(to)\(percent)"
+                "\(groups[1]) to \(groups[2])\(groups.count > 3 ? groups[3] : "")"
             }
         }
         result = apply(Self.scaleSuffixRegex, to: result) { groups in
-            let scale: String
             switch groups[2] {
-            case "K": scale = "thousand"
-            case "M": scale = "million"
-            default: scale = "billion"
+            case "K": "\(groups[1]) thousand"
+            case "M": "\(groups[1]) million"
+            default: "\(groups[1]) billion"
             }
-            let number = normalize(groups[1])
-            return containsDigit(number) ? nil : "\(number) \(scale)"
-        }
-        for (regex, spoken) in Self.symbolWords {
-            result = apply(regex, to: result, transform: spoken)
         }
         return result
     }
