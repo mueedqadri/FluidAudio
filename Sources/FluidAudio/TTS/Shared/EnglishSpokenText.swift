@@ -24,13 +24,15 @@ extension EnglishTextNormalizer {
                                 EnglishRomanNumerals.spell(
                                     EnglishAbbreviationTable.spellWords(EnglishOldMoney.spell($0))))))))
         }
-        pieces = rewrite(pieces, keepingOnlyDigitRewrites: false, when: nemoMayRead, holding: nemoMisreads) {
+        pieces = rewrite(pieces, keepingOnlyDigitRewrites: false, when: nemoMayRead, holding: nemoMisreads) { written in
             // NeMo reads `=` as "equal sign" when a percent sits on its left, and
             // after a title it expands splits a possessive before punctuation
             // (`St. James’s.` → `Saint James’ s.`).
-            NemoTextNormalizer.normalize($0, language: .english)
-                .replacingOccurrences(of: "equal sign", with: "equals")
-                .replacingOccurrences(of: #"(?<=[A-Za-z][’'])\ss\b"#, with: "s", options: .regularExpression)
+            monthsInWrittenCase(
+                NemoTextNormalizer.normalize(written, language: .english)
+                    .replacingOccurrences(of: "equal sign", with: "equals")
+                    .replacingOccurrences(of: #"(?<=[A-Za-z][’'])\ss\b"#, with: "s", options: .regularExpression),
+                written: written)
         }
         pieces = rewrite(pieces, with: normalize)
         // NeMo drops the full stop an abbreviation shares with the sentence (`5 p.m.` → `five PM`).
@@ -40,6 +42,25 @@ extension EnglishTextNormalizer {
             pieces[pieces.count - 1] = Piece(text: last.text + ".", source: source)
         }
         return assemble(pieces)
+    }
+
+    private static let monthNames = [
+        "january", "february", "march", "april", "may", "june", "july", "august", "september", "october",
+        "november", "december",
+    ]
+
+    /// NeMo writes a date's month in lower case (`28 August 2019` → `the
+    /// twenty eighth of august twenty nineteen`), and the lexicon reads `august`
+    /// as the adjective. A month the text did not write in lower case is
+    /// capitalized again; one it did (`we may`, `a long march`) stays.
+    private static func monthsInWrittenCase(_ spoken: String, written: String) -> String {
+        var result = spoken
+        for month in monthNames where result.contains(month) {
+            let word = "\\b\(month)\\b"
+            guard written.range(of: word, options: .regularExpression) == nil else { continue }
+            result = result.replacingOccurrences(of: word, with: month.capitalized, options: .regularExpression)
+        }
+        return result
     }
 
     /// Written words NeMo may read differently: a digit, a symbol, a dotted
