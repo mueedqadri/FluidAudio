@@ -108,6 +108,14 @@ final class EnglishSpokenTextTests: XCTestCase {
         XCTAssertEqual(spoken("Doses of 3.5–4.2 kg."), "Doses of three point five to four point two kilograms.")
         XCTAssertEqual(spoken("Keep it at 10–20 °C for an hour."), "Keep it at ten to twenty degrees Celsius for an hour.")
         XCTAssertTrue(spoken("Held on February 14-16, 1919.").contains("february fourteenth to"))
+        XCTAssertEqual(spoken("Pushed back 100–250 kilometres (62–155 mi) west."),
+            "Pushed back one hundred to two hundred fifty kilometres (sixty two to one hundred fifty five miles) west.")
+    }
+
+    /// A rule that leaves a digit beside its words has not spoken it yet.
+    func testWordsLeftWithADigitAreStillRead() {
+        XCTAssertEqual(spoken("Send bytes=0-499 first."), "Send bytes equals zero to four hundred ninety nine first.")
+        XCTAssertEqual(spoken("It is 5–10× smaller."), "It is five to ten times smaller.")
     }
 
     func testScaleLettersAndMoneyScales() {

@@ -165,11 +165,12 @@ extension EnglishTextNormalizer {
                 }
                 let kept = covered.dropFirst(trimmed.before.count).dropLast(trimmed.after.count)
                 result += trimmed.before.map(edge)
+                // Words left with a digit are not spoken yet (`bytes=0` → `bytes equals 0`).
                 result.append(
                     Piece(
                         text: americanNumberStyle(trimmed.spoken),
                         source: kept.map { stretch[$0].source ?? stretch[$0].text }.joined(separator: " "),
-                        isOpen: leavingOpen))
+                        isOpen: leavingOpen || trimmed.spoken.contains { $0.contains(where: \.isASCIIDigit) }))
                 result += trimmed.after.map(edge)
             }
         }
