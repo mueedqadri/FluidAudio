@@ -129,6 +129,7 @@ struct KokoroAneEnglishPhonemizer: Sendable {
 
         let tokens = Self.splitWordTokens(trimmed)
         let heteronymTags = Self.heteronymTags(for: tokens, in: trimmed)
+        let (repairs, absorbed) = ligatureRepairs(tokens, in: trimmed)
 
         // Resolve right-to-left so context-sensitive function words can see
         // the following token (Misaki iterates `reversed(tokens)` threading
@@ -137,7 +138,7 @@ struct KokoroAneEnglishPhonemizer: Sendable {
         var context = TokenContext()
         for index in tokens.indices.reversed() {
             let token = tokens[index].token
-            if token.isEmpty { continue }
+            if token.isEmpty || absorbed.contains(index) { continue }
 
             if token.count == 1, let ch = token.first, !ch.isLetter, !ch.isNumber {
                 guard allowedPunctuation.contains(ch) else { continue }
@@ -147,7 +148,7 @@ struct KokoroAneEnglishPhonemizer: Sendable {
             }
 
             let ipa = try await resolveWord(
-                token, posTag: heteronymTags[index], context: context, fallback: fallback)
+                repairs[index] ?? token, posTag: heteronymTags[index], context: context, fallback: fallback)
             resolved[index] = ipa
             context = Self.tokenContext(context, phonemes: ipa, token: token)
         }
@@ -183,6 +184,58 @@ struct KokoroAneEnglishPhonemizer: Sendable {
         }
 
         return segments
+    }
+
+    // MARK: - PDF ligature repair
+
+    /// Words a PDF broke at a `fi`, `fl` or `ff` ligature: split after it
+    /// (`Confl icts`) or extracted as a bare `f` (`defned`, `frst`). Returns
+    /// the word to read for a token and the tokens a split word absorbs; the
+    /// segment keeps the written token, so word timings stay on the page.
+    /// A repair is made only when the lexicon lacks the written form and
+    /// knows exactly one repaired form.
+    private func ligatureRepairs(
+        _ tokens: [(token: String, range: Range<String.Index>)], in text: String
+    ) -> (readings: [Int: String], absorbed: Set<Int>) {
+        func isKnown(_ word: String) -> Bool { resolveFromLexicon(word) != nil }
+        func isWord(_ token: String) -> Bool { !token.isEmpty && token.allSatisfy(\.isLetter) }
+
+        var readings: [Int: String] = [:]
+        var absorbed: Set<Int> = []
+        var index = 0
+        while index < tokens.count {
+            let token = tokens[index].token
+            defer { index += 1 }
+            guard isWord(token) else { continue }
+
+            if index + 1 < tokens.count, ["fi", "fl", "ff"].contains(token.suffix(2).lowercased()) {
+                let next = tokens[index + 1]
+                let gap = text[tokens[index].range.upperBound..<next.range.lowerBound]
+                if gap.count == 1, gap.allSatisfy(\.isWhitespace), isWord(next.token),
+                    next.token.allSatisfy(\.isLowercase), isKnown(token + next.token),
+                    !isKnown(token) || !isKnown(next.token)
+                {
+                    readings[index] = token + next.token
+                    absorbed.insert(index + 1)
+                    index += 1
+                    continue
+                }
+            }
+
+            guard token.count >= 3, token.contains(where: { $0 == "f" || $0 == "F" }), !isKnown(token) else {
+                continue
+            }
+            var repaired: Set<String> = []
+            for position in token.indices where token[position] == "f" || token[position] == "F" {
+                let after = token.index(after: position)
+                for letter in ["i", "l"] {
+                    let candidate = String(token[..<after]) + letter + String(token[after...])
+                    if isKnown(candidate) { repaired.insert(candidate) }
+                }
+            }
+            if repaired.count == 1, let word = repaired.first { readings[index] = word }
+        }
+        return (readings, absorbed)
     }
 
     // MARK: - Token context (Misaki TokenContext)

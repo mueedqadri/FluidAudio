@@ -143,6 +143,20 @@ final class EnglishSpokenTextTests: XCTestCase {
         XCTAssertEqual(spoken("“Yes--the men,” she said.--Then she left."), "“Yes—the men,” she said.—Then she left.")
     }
 
+    func testSpacingAccentsJoinTheirLetter() {
+        let joined = [
+            "Marasovi´ c et al.": "Marasović et al.", "B¨uchner": "Büchner", "Filipˇciˇc": "Filipčič",
+            "Gonc¸alves": "Gonçalves", "Garc´ıa": "García", "R¨ uckl´ e": "Rücklé", "Guimar˜aes": "Guimarães",
+        ]
+        for (written, accented) in joined {
+            XCTAssertEqual(EnglishTextNormalizer.spacingAccents(written), accented)
+        }
+        for kept in ["it´s here", "the length ˆ µ", "is called ˙ y", "gg → t¯ t", "whereˆ\nL is"] {
+            XCTAssertEqual(EnglishTextNormalizer.spacingAccents(kept), kept)
+        }
+        XCTAssertTrue(spoken("Marasovi´ c et al. (2022) show it.").hasPrefix("Marasović"))
+    }
+
     func testHyphensThatAreNotRangesStay() {
         XCTAssertFalse(spoken("Call 555-0199 now.").contains(" to "))
         XCTAssertFalse(spoken("It was on 2009-02-26 here.").contains(" to "))

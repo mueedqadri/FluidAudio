@@ -83,6 +83,36 @@ enum EnglishTextNormalizer {
         return result
     }
 
+    /// A letter a PDF drew with a separate accent glyph (`Marasovi´ c`,
+    /// `B¨uchner`, `Filipˇciˇc`, `Gonc¸alves`) written as the accented letter,
+    /// so the name reads as one word. The accent follows a letter and comes
+    /// before the lower-case letter it marks, at most a space away; a cedilla
+    /// marks the letter before it. Math accents (`ˆ L`, `˙ y`, `t¯ t`) and an
+    /// acute set as an apostrophe (`it´s`) stay.
+    static func spacingAccents(_ text: String) -> String {
+        guard text.contains(where: { "´¨˜ˇˆ¸".contains($0) }) else { return text }
+        let result = NSMutableString(string: text)
+        for match in spacingAccentRegex.matches(in: text, range: NSRange(location: 0, length: result.length))
+            .reversed()
+        {
+            let accent = result.substring(with: match.range(at: 1))
+            let base = result.substring(with: match.range(at: 2))
+            guard let mark = combiningAccents[accent], let bases = accentBases[accent], bases.contains(base) else {
+                continue
+            }
+            let letter = (base == "ı" ? "i" : base) + mark
+            result.replaceCharacters(in: match.range, with: letter.precomposedStringWithCanonicalMapping)
+        }
+        return cedillaRegex.stringByReplacingMatches(
+            in: result as String, range: NSRange(location: 0, length: result.length), withTemplate: "$1\u{0327}"
+        ).precomposedStringWithCanonicalMapping
+    }
+
+    private static let spacingAccentRegex = regex(#"(?<=\p{L})([´¨˜ˇˆ]) ?([a-zı])"#)
+    private static let cedillaRegex = regex(#"([cCsStT])¸"#)
+    private static let combiningAccents = ["´": "\u{0301}", "¨": "\u{0308}", "˜": "\u{0303}", "ˇ": "\u{030C}", "ˆ": "\u{0302}"]
+    private static let accentBases = ["´": "aeiouyıcnz", "¨": "aeiouy", "˜": "aon", "ˇ": "cszrnedtl", "ˆ": "aeiou"]
+
     /// A typewriter dash, two hyphens after a word or its punctuation
     /// (`indeed,--a`, `sect--fairly`), as old books and plain-text editions set
     /// an em dash: written as one, which the phonemizer reads as a pause rather
