@@ -86,13 +86,26 @@ enum EnglishTextNormalizer {
     /// A typewriter dash, two hyphens after a word or its punctuation
     /// (`indeed,--a`, `sect--fairly`), as old books and plain-text editions set
     /// an em dash: written as one, which the phonemizer reads as a pause rather
-    /// than gluing the words or naming the letter (`--a` → "A"). A token that
-    /// starts with them (`--version`), longer rules (`---`, `+-----+`) and HTML
-    /// comments stay.
+    /// than gluing the words or naming the letter (`--a` → "A"). Code stays: a
+    /// token that starts with a hyphen or plus (`--version`, `-rw-r--r--`,
+    /// `+---+`), hyphens after a straight quote (`'--graph'`), longer rules and
+    /// HTML comments.
     static func typewriterDashes(_ text: String) -> String {
-        text.replacingOccurrences(
-            of: #"(?<=[\p{L}\p{N}.,;:!?'’"”)\]])(?<!<!)--(?![->])"#, with: "—", options: .regularExpression)
+        guard text.contains("--") else { return text }
+        let ns = text as NSString
+        let result = NSMutableString(string: text)
+        for token in tokenRegex.matches(in: text, range: NSRange(location: 0, length: ns.length)).reversed() {
+            let word = ns.substring(with: token.range)
+            guard word.contains("--"), let first = word.first, first != "-", first != "+" else { continue }
+            let dashed = typewriterDashRegex.stringByReplacingMatches(
+                in: word, range: NSRange(location: 0, length: (word as NSString).length), withTemplate: "—")
+            result.replaceCharacters(in: token.range, with: dashed)
+        }
+        return result as String
     }
+
+    private static let tokenRegex = regex(#"\S+"#)
+    private static let typewriterDashRegex = regex(#"(?<=[\p{L}\p{N}.,;:!?’”)\]])(?<!<!)--(?![->])"#)
 
     /// Written forms NeMo misreads, rewritten as ones it reads with their
     /// context: a range with a dash or hyphen (`50–175 mg` → `50 to 175 mg`,

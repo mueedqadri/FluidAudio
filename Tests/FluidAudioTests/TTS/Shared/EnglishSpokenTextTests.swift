@@ -131,6 +131,8 @@ final class EnglishSpokenTextTests: XCTestCase {
         XCTAssertEqual(spoken("She was a friend!--always."), "She was a friend!—always.")
         XCTAssertEqual(spoken("Run git --version and git checkout -- file."), "Run git --version and git checkout -- file.")
         XCTAssertEqual(spoken("A rule ----- and a cell +---+ and <!-- note -->."), "A rule ----- and a cell +---+ and <!-- note -->.")
+        XCTAssertEqual(spoken("It shows -rw-r--r-- and 'log' '--graph' here."), "It shows -rw-r--r-- and 'log' '--graph' here.")
+        XCTAssertEqual(spoken("“Yes--the men,” she said.--Then she left."), "“Yes—the men,” she said.—Then she left.")
     }
 
     func testHyphensThatAreNotRangesStay() {
