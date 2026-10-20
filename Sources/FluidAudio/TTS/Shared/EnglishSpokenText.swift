@@ -1,20 +1,5 @@
 import Foundation
 
-/// English text as the voice reads it, with every rewritten span tied to the
-/// written words it replaced, so word timings can be reported against the
-/// words a reader sees (`"1999"`, not `"nineteen"` and `"ninety"`).
-struct EnglishSpokenText: Sendable, Equatable {
-    struct Expansion: Sendable, Equatable {
-        /// UTF-16 offsets of the spoken words in `text`.
-        let range: Range<Int>
-        /// The written words they replace.
-        let source: String
-    }
-
-    let text: String
-    let expansions: [Expansion]
-}
-
 extension EnglishTextNormalizer {
 
     /// `text` with its numbers, symbols and abbreviations in spoken form.
@@ -26,7 +11,7 @@ extension EnglishTextNormalizer {
     /// ``spellRangesAndSymbols(_:)``) run first and hold the forms NeMo
     /// misreads or leaves silent (`cf.`, `hrs`, `2019b`, ranges, `±`, `×`);
     /// digits NeMo leaves alone go through ``normalize(_:)``.
-    static func spokenText(_ text: String) -> EnglishSpokenText {
+    static func spokenText(_ text: String) -> SpokenText {
         let text = EnglishOldMoney.joiningSpacedCurrency(text)
         var pieces = text.split(whereSeparator: \.isWhitespace).map { Piece(text: String($0), source: nil) }
         pieces = rewrite(pieces, keepingOnlyDigitRewrites: false, leavingOpen: true, with: editWrittenForms)
@@ -297,9 +282,9 @@ extension EnglishTextNormalizer {
         "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety",
     ]
 
-    private static func assemble(_ pieces: [Piece]) -> EnglishSpokenText {
+    private static func assemble(_ pieces: [Piece]) -> SpokenText {
         var text = ""
-        var expansions: [EnglishSpokenText.Expansion] = []
+        var expansions: [SpokenText.Expansion] = []
         for piece in pieces {
             if !text.isEmpty { text += " " }
             let start = text.utf16.count
@@ -308,7 +293,7 @@ extension EnglishTextNormalizer {
                 expansions.append(.init(range: start..<text.utf16.count, source: source))
             }
         }
-        return EnglishSpokenText(text: text, expansions: expansions)
+        return SpokenText(text: text, language: "en", expansions: expansions)
     }
 }
 
