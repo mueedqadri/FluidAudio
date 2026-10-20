@@ -112,8 +112,8 @@ final class EnglishSpokenTextTests: XCTestCase {
             "Pushed back one hundred to two hundred fifty kilometres (sixty two to one hundred fifty five miles) west.")
     }
 
-    /// A rule that leaves a digit beside its words has not spoken it yet.
-    func testWordsLeftWithADigitAreStillRead() {
+    /// A rule that rewrites part of an edited range leaves its digits for NeMo.
+    func testAnEditedRangeIsReadWhenARuleTouchesIt() {
         XCTAssertEqual(spoken("Send bytes=0-499 first."), "Send bytes equals zero to four hundred ninety nine first.")
         XCTAssertEqual(spoken("It is 5–10× smaller."), "It is five to ten times smaller.")
     }
