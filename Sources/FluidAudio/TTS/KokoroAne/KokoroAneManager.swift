@@ -194,15 +194,32 @@ public actor KokoroAneManager {
         voice: String? = nil,
         speed: Float = KokoroAneConstants.defaultSpeed
     ) async throws -> KokoroAneSynthesisResult {
+        let language = switch variant {
+        case .english: "en"
+        case .mandarin: "zh"
+        case .japanese: "ja"
+        }
+        return try await synthesizeDetailed(
+            spoken: RuleFrontend().spokenText(text, language: language), voice: voice, speed: speed)
+    }
+
+    /// Text a ``SpokenTextFrontend`` already put in spoken form → samples +
+    /// per-stage timings. English word timings name the written words its
+    /// expansions replace.
+    public func synthesizeDetailed(
+        spoken: SpokenText,
+        voice: String? = nil,
+        speed: Float = KokoroAneConstants.defaultSpeed
+    ) async throws -> KokoroAneSynthesisResult {
         // English retains per-word phoneme segmentation, so it can attribute the
         // duration model's frames back to each source word (`wordTimings`).
         // Mandarin/Japanese have no word-segmented frontend here, so they keep
         // the flat-string path (no per-word timing).
         if variant == .english {
-            return try await synthesizeEnglishWithTimings(text: text, voice: voice, speed: speed)
+            return try await synthesizeEnglishWithTimings(spoken: spoken, voice: voice, speed: speed)
         }
 
-        let resolved = try await phonemes(for: text)
+        let resolved = try await phonemes(for: spoken.text)
 
         // High-level text API owns chunking: if the resolved phoneme string
         // exceeds the chain's input cap, split it at whitespace / pause
@@ -261,14 +278,14 @@ public actor KokoroAneManager {
     /// each, and attributes the duration model's frames back to each source
     /// word (offsetting by the audio already produced by earlier chunks).
     private func synthesizeEnglishWithTimings(
-        text: String,
+        spoken: SpokenText,
         voice: String?,
         speed: Float
     ) async throws -> KokoroAneSynthesisResult {
-        let segments = try await englishSegments(for: text)
+        let segments = try await englishSegments(for: spoken)
         guard !segments.isEmpty else {
             throw KokoroAneError.inputProcessingFailed(
-                "produced no phonemes for input '\(text.trimmingCharacters(in: .whitespacesAndNewlines))'")
+                "produced no phonemes for input '\(spoken.text.trimmingCharacters(in: .whitespacesAndNewlines))'")
         }
         let vocab = try await store.vocabulary()
         let chunks = Self.groupSegmentsIntoChunks(
@@ -315,12 +332,11 @@ public actor KokoroAneManager {
             wordTimings: wordTimings)
     }
 
-    /// English text → per-word phoneme segments (normalization + lexicon/G2P) —
-    /// the structured form of `phonemes(for:)`.
+    /// Spoken English → per-word phoneme segments (lexicon/G2P), each
+    /// expansion's words joined under its written source.
     private func englishSegments(
-        for text: String
+        for spoken: SpokenText
     ) async throws -> [KokoroAneEnglishPhonemizer.PhonemeSegment] {
-        let spoken = EnglishTextNormalizer.spokenText(text)
         let phonemizer = await ensureEnglishPhonemizer()
         let segments = try await phonemizer.phonemizeSegments(spoken.text) { word in
             try await self.englishG2PPhonemes(for: word)

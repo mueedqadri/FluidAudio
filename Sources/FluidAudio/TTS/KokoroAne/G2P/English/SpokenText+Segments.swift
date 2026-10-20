@@ -1,6 +1,6 @@
 import Foundation
 
-extension EnglishSpokenText {
+extension SpokenText {
 
     /// `segments` with each expansion's words joined into one segment named for
     /// its written source, so a word timing covers `"$4.50"` rather than four
