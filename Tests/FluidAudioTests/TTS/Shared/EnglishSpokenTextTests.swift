@@ -180,6 +180,13 @@ final class EnglishSpokenTextTests: XCTestCase {
         XCTAssertTrue(spoken("The model has 1.3B parameters.").contains("one point three billion"))
     }
 
+    func testADegreeSignEndsASentence() {
+        XCTAssertEqual(spoken("Keep it at 10 °C."), "Keep it at ten degrees Celsius.")
+        XCTAssertEqual(spoken("Keep it at 10–20 °C."), "Keep it at ten to twenty degrees Celsius.")
+        XCTAssertEqual(spoken("It is 30 °F."), "It is thirty degrees Fahrenheit.")
+        XCTAssertEqual(spoken("It ended in World War II."), "It ended in World War two.")
+    }
+
     func testArithmeticStaysWithNeMo() {
         XCTAssertTrue(
             spoken("Show 705 - 30 = 675.").contains("seven hundred five minus thirty equals six hundred seventy five"))
