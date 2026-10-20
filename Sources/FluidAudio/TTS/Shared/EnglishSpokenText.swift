@@ -29,6 +29,7 @@ extension EnglishTextNormalizer {
     static func spokenText(_ text: String) -> EnglishSpokenText {
         let text = EnglishOldMoney.joiningSpacedCurrency(text)
         var pieces = text.split(whereSeparator: \.isWhitespace).map { Piece(text: String($0), source: nil) }
+        pieces = rewrite(pieces, keepingOnlyDigitRewrites: false, leavingOpen: true, with: editWrittenForms)
         pieces = rewrite(pieces, keepingOnlyDigitRewrites: false) {
             spellRangesAndSymbols(
                 EnglishGreekLetters.spell(
@@ -82,66 +83,105 @@ extension EnglishTextNormalizer {
     }
 
     /// A whitespace-separated piece of the output; `source` is set when it is
-    /// spoken words that replace written ones.
+    /// spoken words that replace written ones. An open piece is a written form
+    /// a rule edited for the stages after it to read (`50–175` → `50 to 175`).
     private struct Piece {
         let text: String
         let source: String?
+        var isOpen = false
     }
 
-    /// Run `rewriter` over each stretch of untouched pieces. With
-    /// `keepingOnlyDigitRewrites`, only stretches holding a digit are read
-    /// and only rewrites of written words with a digit are kept, which is
-    /// how the ``normalize(_:)`` fallback runs. A stretch is read only when
-    /// a word in it passes `when`; pieces `holding` accepts pass through unread.
+    /// Run `rewriter` over each stretch of pieces still to be read: untouched
+    /// ones and open ones. With `keepingOnlyDigitRewrites`, only stretches
+    /// holding a digit are read and only rewrites of written words with a
+    /// digit are kept, which is how the ``normalize(_:)`` fallback runs. A
+    /// stretch is read only when a word in it passes `when`; pieces `holding`
+    /// accepts pass through unread. `leavingOpen` keeps the rewrites open. A
+    /// rewrite that touches an open piece covers all of it, so its page words
+    /// stay one span.
     private static func rewrite(
         _ pieces: [Piece],
         keepingOnlyDigitRewrites: Bool = true,
+        leavingOpen: Bool = false,
         when needsReading: (String) -> Bool = { _ in true },
         holding: (String) -> Bool = { _ in false },
         with rewriter: (String) -> String
     ) -> [Piece] {
         var result: [Piece] = []
-        var stretch: [String] = []
+        var stretch: [Piece] = []
 
         func flush() {
             defer { stretch.removeAll() }
-            guard stretch.contains(where: needsReading),
-                !keepingOnlyDigitRewrites || stretch.contains(where: { $0.contains(where: \.isASCIIDigit) })
+            var tokens: [String] = []
+            var owners: [Int] = []
+            for (index, piece) in stretch.enumerated() {
+                let words = piece.text.split(whereSeparator: \.isWhitespace).map(String.init)
+                tokens += words
+                owners += Array(repeating: index, count: words.count)
+            }
+            guard tokens.contains(where: needsReading),
+                !keepingOnlyDigitRewrites || tokens.contains(where: { $0.contains(where: \.isASCIIDigit) })
             else {
-                result += stretch.map { Piece(text: $0, source: nil) }
+                result += stretch
                 return
             }
-            let rewritten = rewriter(stretch.joined(separator: " "))
+            let rewritten = rewriter(tokens.joined(separator: " "))
                 .split(whereSeparator: \.isWhitespace).map(String.init)
-            for hunk in hunks(from: stretch, to: rewritten) {
-                guard hunk.spoken != hunk.written, !hunk.spoken.isEmpty,
-                    !keepingOnlyDigitRewrites
-                        || hunk.written.contains(where: { $0.contains(where: \.isASCIIDigit) })
+
+            // Hunks joined so none ends inside a piece.
+            var groups: [(written: Range<Int>, spoken: [String])] = []
+            var position = 0
+            for hunk in hunks(from: tokens, to: rewritten) {
+                let range = position..<(position + hunk.written.count)
+                position = range.upperBound
+                if let last = groups.last, last.written.upperBound > 0, last.written.upperBound < tokens.count,
+                    owners[last.written.upperBound - 1] == owners[last.written.upperBound]
+                {
+                    groups[groups.count - 1] = (last.written.lowerBound..<range.upperBound, last.spoken + hunk.spoken)
+                } else {
+                    groups.append((range, hunk.spoken))
+                }
+            }
+
+            for group in groups {
+                let written = Array(tokens[group.written])
+                let covered = group.written.isEmpty ? [] : Array(Set(owners[group.written])).sorted()
+                guard written != group.spoken, !group.spoken.isEmpty,
+                    !keepingOnlyDigitRewrites || written.contains(where: { $0.contains(where: \.isASCIIDigit) })
                 else {
-                    result += hunk.written.map { Piece(text: $0, source: nil) }
+                    result += covered.map { stretch[$0] }
                     continue
                 }
                 // An edge word that reads the same alone is its own piece, so word
                 // timings keep one written word per span (`1915, Mr.`); the digit-only
-                // fallback leaves it as written.
-                let trimmed = trimmingStandaloneRewrites(hunk, with: rewriter)
+                // fallback leaves it as written. An open piece's words stay together.
+                let trimmed = trimmingStandaloneRewrites(
+                    (written, group.spoken), trimmable: group.written.map { !stretch[owners[$0]].isOpen },
+                    with: rewriter)
                 func edge(_ word: (written: String, spoken: [String])) -> Piece {
                     keepingOnlyDigitRewrites
                         ? Piece(text: word.written, source: nil)
                         : Piece(text: word.spoken.joined(separator: " "), source: word.written)
                 }
+                let kept = covered.dropFirst(trimmed.before.count).dropLast(trimmed.after.count)
                 result += trimmed.before.map(edge)
+                // An edit whose numbers are still digits is not spoken yet (`bytes=0-499`
+                // → `bytes equals 0 to 499`).
+                let editStillWritten = kept.contains { stretch[$0].isOpen }
+                    && trimmed.spoken.contains { $0.contains(where: \.isASCIIDigit) }
                 result.append(
                     Piece(
                         text: americanNumberStyle(trimmed.spoken),
-                        source: trimmed.written.joined(separator: " ")))
+                        source: kept.map { stretch[$0].source ?? stretch[$0].text }.joined(separator: " "),
+                        isOpen: leavingOpen || editStillWritten))
                 result += trimmed.after.map(edge)
             }
         }
 
         for piece in pieces {
-            if piece.source == nil, !holding(piece.text) {
-                stretch.append(piece.text)
+            let words = piece.text.split(whereSeparator: \.isWhitespace).map(String.init)
+            if piece.source == nil || piece.isOpen, !words.contains(where: holding) {
+                stretch.append(piece)
             } else {
                 flush()
                 result.append(piece)
@@ -157,6 +197,7 @@ extension EnglishTextNormalizer {
     /// `26` only changes with its number.
     private static func trimmingStandaloneRewrites(
         _ hunk: (written: [String], spoken: [String]),
+        trimmable: [Bool],
         with rewriter: (String) -> String
     ) -> (
         before: [(written: String, spoken: [String])], written: [String], spoken: [String],
@@ -173,18 +214,22 @@ extension EnglishTextNormalizer {
             return alone == [word] ? nil : alone
         }
 
-        while written.count > 1, let first = written.first, let alone = standaloneRewrite(first),
-            spoken.starts(with: alone), spoken.count > alone.count
+        var trimmable = trimmable[...]
+        while written.count > 1, trimmable.first == true, let first = written.first,
+            let alone = standaloneRewrite(first), spoken.starts(with: alone), spoken.count > alone.count
         {
             before.append((first, alone))
             written.removeFirst()
+            trimmable.removeFirst()
             spoken.removeFirst(alone.count)
         }
-        while written.count > 1, let last = written.last, let alone = standaloneRewrite(last),
-            spoken.reversed().starts(with: alone.reversed()), spoken.count > alone.count
+        while written.count > 1, trimmable.last == true, let last = written.last,
+            let alone = standaloneRewrite(last), spoken.reversed().starts(with: alone.reversed()),
+            spoken.count > alone.count
         {
             after.insert((last, alone), at: 0)
             written.removeLast()
+            trimmable.removeLast()
             spoken.removeLast(alone.count)
         }
         return (before, written, spoken, after)

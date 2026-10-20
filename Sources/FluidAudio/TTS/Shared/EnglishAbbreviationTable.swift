@@ -141,10 +141,12 @@ enum EnglishAbbreviationTable {
         // Any letter or digit, accented or raised, continues the word (`mètres`, `m²`);
         // a bracket or slash makes it a variable or a rate (`30 s(s−x)`, `20 m/s`).
         let symbolEnd = #"(?![\p{L}\p{N}⁻(/])"#
+        // After an amount of money a letter is its scale (`$30 m`), which NeMo reads.
+        let notMoney = #"(?<![$£€¥][0-9.,]{1,16} )"#
         return units.map { (#"(?<=(?<![0-9.])1 )"# + $0.stem + #"s?\.?(?![A-Za-z])"#, $0.singular) }
             + units.map { (#"(?<=[0-9] )"# + $0.stem + #"s?\.?(?![A-Za-z])"#, $0.plural) }
-            + symbols.map { (#"(?<=(?<![0-9.])1 )"# + $0.symbol + symbolEnd, $0.singular) }
-            + symbols.map { (#"(?<=[0-9] )"# + $0.symbol + symbolEnd, $0.plural) }
+            + symbols.map { (notMoney + #"(?<=(?<![0-9.])1 )"# + $0.symbol + symbolEnd, $0.singular) }
+            + symbols.map { (notMoney + #"(?<=[0-9] )"# + $0.symbol + symbolEnd, $0.plural) }
     }
 
     // MARK: - Words read before NeMo
