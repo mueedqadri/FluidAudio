@@ -105,6 +105,32 @@ final class KokoroAneEnglishPhonemizerTests: XCTestCase {
         }
     }
 
+    // MARK: - PDF ligature repair
+
+    func testWordsAPDFBrokeAtALigatureReadWhole() async throws {
+        let phonemizer = KokoroAneEnglishPhonemizer(
+            wordToPhonemes: [
+                "conflict": ["k", "ˈ", "ɑ", "n", "f", "l", "ɪ", "k", "t"],
+                "of": ["ʌ", "v"], "its": ["ɪ", "t", "s"], "off": ["ˈ", "ɔ", "f"],
+                "offer": ["ˈ", "ɔ", "f", "ə", "ɹ"], "staff": ["s", "t", "ˈ", "æ", "f"],
+                "were": ["w", "ɜ", "ɹ"], "define": ["d", "ə", "f", "ˈ", "I", "n"],
+                "first": ["f", "ˈ", "ɜ", "ɹ", "s", "t"], "flattest": ["f", "l", "ˈ", "æ", "T", "ᵻ", "s", "t"],
+                "fife": ["f", "ˈ", "I", "f"],
+            ],
+            allowedPunctuation: punctuation)
+        let recorder = FallbackRecorder()
+        let broken = try await phonemizer.phonemizeSegments(
+            "Confl icts of its staff were defned frst, and off ers too.", fallback: { await recorder.g2p($0) })
+        let whole = try await phonemizer.phonemizeSegments(
+            "Conflicts of its staff were defined first, and offers too.", fallback: { await recorder.g2p($0) })
+        XCTAssertEqual(
+            broken.map(\.word), ["Confl", "of", "its", "staff", "were", "defned", "frst", "and", "off", "too"])
+        XCTAssertEqual(broken.map(\.phonemes), whole.map(\.phonemes))
+        _ = try await phonemizer.phonemizeSegments("The fattest ffe.", fallback: { await recorder.g2p($0) })
+        let words = await recorder.words
+        XCTAssertTrue(words.contains("fattest") && words.contains("ffe"), "\(words)")
+    }
+
     // MARK: - Context-sensitive function words (Misaki get_special_case)
 
     func testTheReducesByFollowingSound() async throws {

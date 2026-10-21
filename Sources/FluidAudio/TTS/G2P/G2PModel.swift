@@ -60,8 +60,11 @@ actor G2PModel {
 
         // Encode: [BOS] + grapheme IDs + [EOS]
         var inputIds: [Int32] = [Int32(bosTokenId)]
+        // The model knows ASCII letters only; an accented one reads as its base (`ć` → `c`).
         for ch in word {
-            inputIds.append(Int32(graphemeToId[ch] ?? unkTokenId))
+            let known = graphemeToId[ch] ?? String(ch).folding(options: .diacriticInsensitive, locale: nil).first
+                .flatMap { graphemeToId[$0] }
+            inputIds.append(Int32(known ?? unkTokenId))
         }
         inputIds.append(Int32(eosTokenId))
 
