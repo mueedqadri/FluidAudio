@@ -74,7 +74,8 @@ extension EnglishTextNormalizer {
     }
 
     /// Written words NeMo reads wrongly: `AT&T` → `ATANDT`, initials it joins
-    /// into a word (`A. M. Turing` → `AM`), `etc.` as one word the lexicon lacks, a
+    /// into a word (`A. M. Turing` → `AM`; a degree's scale, `°C.`, is not one),
+    /// `etc.` as one word the lexicon lacks, a
     /// slash between words (`and/or` → `and slash or`), a word it joins to the
     /// one before (`to ’Frisco` → `to’Frisco`), and markup it names aloud
     /// (`_War_`, `*`, `|`, `M^{rs}`, `mother.--Yours` and `Jan.-Mar.` → `dot
@@ -84,7 +85,7 @@ extension EnglishTextNormalizer {
             || word.range(of: #"^[‘’'][A-Za-z]"#, options: .regularExpression) != nil
             || word.range(of: #"(?:^|[^A-Za-z0-9])_|_(?:$|[^A-Za-z0-9])"#, options: .regularExpression) != nil
             || word.range(
-                of: #"^\W*(?:[A-Z]+&[A-Z]+|[A-Z]\.|[Ee]tc\.|[-+=~]{2,}|[A-Za-z]+(?:/[A-Za-z]+)+)\W*$"#,
+                of: #"^\W*(?:[A-Z]+&[A-Z]+|(?<!°)[A-Z]\.|[Ee]tc\.|[-+=~]{2,}|[A-Za-z]+(?:/[A-Za-z]+)+)\W*$"#,
                 options: .regularExpression) != nil
     }
 
