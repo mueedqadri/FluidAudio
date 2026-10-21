@@ -69,6 +69,14 @@ final class EnglishSpokenTextTests: XCTestCase {
         XCTAssertEqual(spoken("Up at 6:00 a.m. today."), "Up at six AM today.")
     }
 
+    func testMonthsKeepTheirWrittenCase() {
+        XCTAssertEqual(
+            spoken("It was downloaded on 28 August 2019."), "It was downloaded on the twenty eighth of August twenty nineteen.")
+        XCTAssertEqual(spoken("Carrillo JA, Benitez J (August 2000)."), "Carrillo JA, Benitez J (August two thousand).")
+        XCTAssertEqual(spoken("We may meet on 5 May 2021."), "We may meet on the fifth of may twenty twenty one.")
+        XCTAssertEqual(spoken("A proxy MAY transform it by 2021."), "A proxy MAY transform it by twenty twenty one.")
+    }
+
     func testNumbersDropTheBritishAnd() {
         XCTAssertEqual(spoken("It cost 270 dollars."), "It cost two hundred seventy dollars.")
         XCTAssertEqual(spoken("Show that 169 + 101 = 270."), "Show that one hundred sixty nine plus one hundred one equals two hundred seventy.")
@@ -107,7 +115,7 @@ final class EnglishSpokenTextTests: XCTestCase {
         XCTAssertEqual(caffeine.expansions.map(\.source), ["50–175 mg"])
         XCTAssertEqual(spoken("Doses of 3.5–4.2 kg."), "Doses of three point five to four point two kilograms.")
         XCTAssertEqual(spoken("Keep it at 10–20 °C for an hour."), "Keep it at ten to twenty degrees Celsius for an hour.")
-        XCTAssertTrue(spoken("Held on February 14-16, 1919.").contains("february fourteenth to"))
+        XCTAssertTrue(spoken("Held on February 14-16, 1919.").contains("February fourteenth to"))
         XCTAssertEqual(spoken("Pushed back 100–250 kilometres (62–155 mi) west."),
             "Pushed back one hundred to two hundred fifty kilometres (sixty two to one hundred fifty five miles) west.")
     }
