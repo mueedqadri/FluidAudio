@@ -47,4 +47,13 @@ final class EnglishRomanNumeralsTests: XCTestCase {
         XCTAssertEqual(spoken("Steps: (i) open it; (ii) read it."), "Steps: (one) open it; (two) read it.")
         XCTAssertEqual(spoken("He gave an (IV) drip."), "He gave an (IV) drip.")
     }
+
+    func testANumeralAloneIsAHeadingOrAnItem() {
+        let headings = [
+            "III.": "three.", "XL": "forty", "XXIII.": "twenty three.", "viii.": "eight.", "(iii.)": "(three.)",
+            "[xxii.]": "[twenty two.]", "ii": "two",
+        ]
+        for (written, read) in headings { XCTAssertEqual(spoken(written), read, written) }
+        for kept in ["I.", "I", "V.", "(c)", "C.", "MIX", "CD.", "Xi"] { XCTAssertEqual(spoken(kept), kept, kept) }
+    }
 }

@@ -5,13 +5,16 @@ import Foundation
 /// `Super Bowl CL`), after a monarch's or pope's name as an ordinal (`Henry
 /// VIII` → "Henry the eighth"), after another capitalized word when the
 /// numeral has two or more letters (`Rocky II` → "Rocky two"), and as list
-/// markers (`(ii)` → "(two)"). A numeral alone (`MIX`, `CL`, the pronoun `I`)
-/// and a lone letter after a name (`Malcolm X`) stay as written.
+/// markers (`(ii)` → "(two)"). A sentence that is only a numeral of two or
+/// more letters is a heading or a numbered item (`III.` → "three."). A
+/// numeral alone in running text (`MIX`, `CL`, the pronoun `I`) and a lone
+/// letter after a name (`Malcolm X`) stay as written.
 enum EnglishRomanNumerals {
 
     /// `text` with its Roman numerals in words where the context allows.
     static func spell(_ text: String) -> String {
         guard text.contains(where: { "IVXLCDMivx".contains($0) }) else { return text }
+        if let heading = spellAlone(text) { return heading }
         var result = spellEnumerators(text)
         result = replace(afterCueRegex, in: result) { groups in
             // `this chapter I have`: after a lowercase cue a lone letter is the pronoun.
@@ -114,6 +117,22 @@ enum EnglishRomanNumerals {
         "Philip", "Pius", "Ramesses", "Ramses", "Richard", "Robert", "Rudolf", "Selim", "Sigismund",
         "Stephen", "Suleiman", "Thutmose", "Urban", "Valdemar", "Victor", "Wilhelm", "William",
     ]
+
+    // MARK: - A numeral alone
+
+    /// A sentence that is only a numeral, as a chapter heading or a numbered
+    /// definition sets it (`III.`, `XL`, `viii.`, `(iii.)`, `[xxii.]`): two or
+    /// more letters, uppercase within `I V X L C` and lowercase within `i v x`.
+    /// One letter stays (`I` is the pronoun, `(c)` a lettered item).
+    private static func spellAlone(_ text: String) -> String? {
+        let spelled = replace(aloneRegex, in: text) { groups in
+            value(groups[2]).map { groups[1] + EnglishTextNormalizer.normalize(String($0)) + groups[3] }
+        }
+        return spelled == text ? nil : spelled
+    }
+
+    private static let aloneRegex = try! NSRegularExpression(
+        pattern: #"^(\s*[(\[]?)([IVXLC]{2,}|[ivx]{2,})([.)\]]*\s*)$"#)
 
     // MARK: - List markers (from upstream FluidAudio `spellRomanEnumerators`)
 
