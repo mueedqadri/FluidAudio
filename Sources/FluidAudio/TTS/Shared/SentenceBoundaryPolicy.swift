@@ -8,6 +8,24 @@ public enum SentenceBoundaryPolicy {
     /// Reference words read before a number (`Fig`, `pp`, `Art`), without their period.
     public static let referenceWords = Set(EnglishAbbreviationTable.spokenForms(in: .beforeNumber).keys)
 
+    /// Changes whenever where a sentence ends could: the rules' version and
+    /// every list they read. A stored sentence index keeps it, so a change here
+    /// cuts the text again instead of serving the old cut.
+    public static let fingerprint: String = {
+        let lists = [
+            titles, EnglishAbbreviationTable.neverEndASentence, EnglishAbbreviationTable.placePrefixes,
+            EnglishAbbreviationTable.sentenceOpeners, beforeNumber,
+        ].map { $0.sorted().joined(separator: ",") }
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+        for byte in lists.joined(separator: "|").utf8 {
+            hash = (hash ^ UInt64(byte)) &* 0x0000_0100_0000_01b3
+        }
+        return "\(rulesVersion)-" + String(hash, radix: 16)
+    }()
+
+    /// Bump when `continuesAcrossBoundary` decides differently from the same lists.
+    static let rulesVersion = 1
+
     /// Whether `text` ends in an abbreviation that `next` continues: a title, a
     /// Latin abbreviation, a reference word before a number, a saint's or
     /// mountain's prefix before a name, or a name's initial before a capitalized

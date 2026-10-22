@@ -34,4 +34,9 @@ final class SentenceBoundaryPolicyTests: XCTestCase {
     func testReferenceWordsComeFromTheTable() {
         XCTAssertTrue(SentenceBoundaryPolicy.referenceWords.isSuperset(of: ["Fig", "pp", "secs", "Art", "Para", "Pt", "Op"]))
     }
+
+    func testTheFingerprintIsStable() {
+        XCTAssertEqual(SentenceBoundaryPolicy.fingerprint, SentenceBoundaryPolicy.fingerprint)
+        XCTAssertTrue(SentenceBoundaryPolicy.fingerprint.hasPrefix("1-"))
+    }
 }
