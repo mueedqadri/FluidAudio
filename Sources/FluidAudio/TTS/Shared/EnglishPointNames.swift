@@ -80,7 +80,7 @@ enum EnglishPointNames {
     // MARK: - Names
 
     private static let tokenRegex = try! NSRegularExpression(pattern: #"\S+"#)
-    private static let nameRegex = try! NSRegularExpression(pattern: #"^[(\[]?([A-Z]{2,3})[,.;:)\]]?$"#)
+    private static let nameRegex = try! NSRegularExpression(pattern: #"^[(\[]?([A-Z]{2,3})[,.;:)\]]{0,2}$"#)
     private static let productRegex = try! NSRegularExpression(
         pattern: #"^[(\[]?([A-Z]{2,3})\.([A-Z]{2,3})[,.;:)\]]?$"#)
     private static let loneLetterRegex = try! NSRegularExpression(pattern: #"^[(\[]?[B-HJ-Z][,.;:)\]]?$"#)
@@ -93,6 +93,7 @@ enum EnglishPointNames {
         let names = words.map { firstGroup(nameRegex, in: $0) }
         let products = words.map { matches(productRegex, $0) }
         guard names.contains(where: { $0 != nil }) || products.contains(true) else { return text }
+        let isName = words.indices.map { names[$0] != nil || products[$0] }
         // A word's letters after any `Sol.—` lead-in; a capitalized one is a
         // figure word only where a clause opens (`Join AB`, not `Cone EJ`).
         let parts = words.map { $0.components(separatedBy: "—").last ?? $0 }
@@ -103,7 +104,7 @@ enum EnglishPointNames {
         }
 
         var cued: Set<Int> = []
-        for index in words.indices where names[index] != nil {
+        for index in words.indices where isName[index] {
             if index > 0, figureLeads.contains(lower[index - 1]), isPlainWord(index - 1) { cued.insert(index) }
             if index > 1, comparisons.contains("\(lower[index - 2]) \(lower[index - 1])") { cued.insert(index) }
             if index > 0, lower[index - 1] == "let",
@@ -111,10 +112,10 @@ enum EnglishPointNames {
             {
                 cued.insert(index)
             }
-            if index + 2 < words.count, operators.contains(words[index + 1]), names[index + 2] != nil {
+            if index + 2 < words.count, operators.contains(words[index + 1]), isName[index + 2] {
                 cued.formUnion([index, index + 2])
             }
-            if index + 4 < words.count, lower[(index + 1)...(index + 3)] == ["is", "equal", "to"], names[index + 4] != nil {
+            if index + 4 < words.count, lower[(index + 1)...(index + 3)] == ["is", "equal", "to"], isName[index + 4] {
                 cued.formUnion([index, index + 4])
             }
         }
@@ -122,7 +123,7 @@ enum EnglishPointNames {
             names.contains { $0.map { !$0.contains(where: "AEIOUY".contains) } ?? false }
             || words.indices.dropFirst().contains { matches(loneLetterRegex, words[$0]) }
         let isFigure =
-            !cued.isEmpty || products.contains(true)
+            !cued.isEmpty
             || (unwordable && lower.indices.contains { figureWords.contains(lower[$0]) && isPlainWord($0) })
         guard isFigure else { return text }
         // A name listed beside another (`AB, BE`, `AO, OB, DH, HE;`).

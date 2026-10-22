@@ -18,6 +18,7 @@ final class EnglishPointNamesTests: XCTestCase {
         XCTAssertEqual(spoken("Lastly, cut off OR = ON, and OS = OQ."), "Lastly, cut off O R equals O N, and O S equals O Q.")
         XCTAssertEqual(spoken("Dem.—Draw BE parallel to AC."), "Dem.—Draw B E parallel to A C.")
         XCTAssertEqual(spoken("Hence AB is bisected in D."), "Hence A B is bisected in D.")
+        XCTAssertEqual(spoken("Join the sides (BA, CA), and bisect them."), "Join the sides (B A, C A), and bisect them.")
         XCTAssertEqual(spoken("Join AO, OB, DH, HE; then the radii are equal."), "Join A O, O B, DH, H E; then the radii are equal.")
     }
 
@@ -39,5 +40,7 @@ final class EnglishPointNamesTests: XCTestCase {
         XCTAssertEqual(EnglishPointNames.spell("I did NOT draw the line."), "I did NOT draw the line.")
         XCTAssertEqual(EnglishPointNames.spell("Euclid lived about 300 BC near the circle."), "Euclid lived about 300 BC near the circle.")
         XCTAssertEqual(EnglishPointNames.spell("IT′S a 3′ end."), "IT′S a 3′ end.")
+        XCTAssertEqual(EnglishPointNames.spell("Calle Loreto, Num. 4, Mexico, D. F. BKI.MAR."), "Calle Loreto, Num. 4, Mexico, D. F. BKI.MAR.")
+        XCTAssertEqual(spoken("JOHN MAYNARD KEYNES, C.B."), "JOHN MAYNARD KEYNES, C.B.")
     }
 }

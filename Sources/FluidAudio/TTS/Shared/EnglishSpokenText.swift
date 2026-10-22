@@ -101,13 +101,13 @@ extension EnglishTextNormalizer {
     /// (`COMMODITIES, OR OF`). Their positions in `pieces`, to keep them from
     /// NeMo, so the phonemizer reads them.
     private static func lettersNeMoReadsAsStates(in pieces: [Piece]) -> Set<Int> {
+        var held: Set<Int> = []
         if EnglishPointNames.isCapitalsPassage(pieces.map(\.text)) {
-            return Set(pieces.indices.filter {
+            held.formUnion(pieces.indices.filter {
                 pieces[$0].source == nil
                     && pieces[$0].text.range(of: #"^[A-Z]{2}[,.;:)]?$"#, options: .regularExpression) != nil
             })
         }
-        var held: Set<Int> = []
         for index in pieces.indices.dropFirst() {
             let piece = pieces[index], before = pieces[index - 1]
             guard piece.source == nil, before.source == nil, before.text.hasSuffix(","),
