@@ -62,7 +62,17 @@ enum EnglishAbbreviationTable {
         ("No", "number"), ("no", "number"), ("Nos", "numbers"), ("nos", "numbers"),
         ("Ref", "reference"), ("ref", "reference"), ("Refs", "references"), ("refs", "references"),
         ("Tab", "table"), ("tab", "table"), ("Thm", "theorem"), ("Ex", "example"),
+        ("Art", "article"), ("art", "article"), ("Para", "paragraph"), ("para", "paragraph"),
+        ("Pt", "part"), ("pt", "part"), ("Op", "opus"), ("op", "opus"),
     ].map { Entry(written: $0.0, spoken: $0.1, context: .beforeNumber) }
+
+    /// Abbreviations that never end a sentence (`cf. Table 2`, `e.g. on`), for
+    /// where narration cuts sentences (``SentenceBoundaryPolicy``).
+    static let neverEndASentence: Set<String> = ["i.e.", "e.g.", "cf.", "viz.", "vs.", "approx.", "Proc."]
+
+    /// A saint's or mountain's name follows these (`St. James`, `Mt. Rainier`),
+    /// a street or a sentence end may (`Elm St. Then`).
+    static let placePrefixes: Set<String> = ["St.", "Mt."]
 
     /// `et al.` keeps its period only where it ends a sentence, so it never
     /// pauses mid-sentence.
