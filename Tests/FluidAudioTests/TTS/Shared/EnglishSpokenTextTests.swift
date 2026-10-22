@@ -77,6 +77,19 @@ final class EnglishSpokenTextTests: XCTestCase {
         XCTAssertEqual(spoken("A proxy MAY transform it by 2021."), "A proxy MAY transform it by twenty twenty one.")
     }
 
+    func testInitialsAndLabelsAreNotStates() {
+        for written in [
+            "Akimov, M.S. Alam, M.A. Alam, J. Albert", "Brown, P.A. Bruckman de Renstrom", "John Smith, M.A., LL.D.",
+            "Written by A. Pritzel, M.F., O.R., R.B. and others.", "AB, AC be parallel to DE, DF, and if AC, DE meet in G.",
+            "Join AO, CO.", "Draw the tangents LM, MN, NL to the circle.",
+        ] {
+            XCTAssertEqual(spoken(written), written)
+        }
+        XCTAssertEqual(spoken("He lives in Boston, MA now."), "He lives in Boston, Massachusetts now.")
+        XCTAssertTrue(spoken("Portland, OR 97201 is far.").hasPrefix("Portland, Oregon"))
+        XCTAssertEqual(spoken("A school at Tuskegee, Alabama."), "A school at Tuskegee, Alabama.")
+    }
+
     func testNumbersDropTheBritishAnd() {
         XCTAssertEqual(spoken("It cost 270 dollars."), "It cost two hundred seventy dollars.")
         XCTAssertEqual(spoken("Show that 169 + 101 = 270."), "Show that one hundred sixty nine plus one hundred one equals two hundred seventy.")
