@@ -28,6 +28,11 @@ final class EnglishPointNamesTests: XCTestCase {
             spoken("the points A′, B′, C′ form a second triangle A′B′C′,"),
             "the points A prime, B prime, C prime form a second triangle A prime B prime C prime,")
         XCTAssertEqual(spoken("we may write f′′(x) instead."), "we may write f double prime(x) instead.")
+        XCTAssertEqual(EnglishPointNames.spell("AD.BD + CD² = BC²."), "A D times B D + CD² = BC².")
+        XCTAssertEqual(EnglishPointNames.spell("AB.CB"), "A B times C B")
+        XCTAssertEqual(
+            EnglishPointNames.spell("Thus, if AB, AD be two adjacent sides of a rectangle, the rectangle is expressed by AB.AD."),
+            "Thus, if A B, A D be two adjacent sides of a rectangle, the rectangle is expressed by A B times A D.")
         XCTAssertEqual(spoken("Relative to K′, the event."), "Relative to K prime, the event.")
     }
 

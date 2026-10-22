@@ -118,12 +118,20 @@ enum EnglishPointNames {
             if index + 4 < words.count, lower[(index + 1)...(index + 3)] == ["is", "equal", "to"], isName[index + 4] {
                 cued.formUnion([index, index + 4])
             }
+            // A product beside a sign is a term of an equation (`AD.BD + CD²`).
+            if products[index], index > 0 && operators.contains(words[index - 1])
+                || index + 1 < words.count && operators.contains(words[index + 1])
+            {
+                cued.insert(index)
+            }
         }
         let unwordable =
-            names.contains { $0.map { !$0.contains(where: "AEIOUY".contains) } ?? false }
+            products.contains(true) || names.contains { $0.map { !$0.contains(where: "AEIOUY".contains) } ?? false }
             || words.indices.dropFirst().contains { matches(loneLetterRegex, words[$0]) }
+        // A line of names and products alone is a figure's (`AB.CB`).
+        let namesOnly = words.indices.allSatisfy { isName[$0] || operators.contains(words[$0]) }
         let isFigure =
-            !cued.isEmpty
+            !cued.isEmpty || (namesOnly && products.contains(true))
             || (unwordable && lower.indices.contains { figureWords.contains(lower[$0]) && isPlainWord($0) })
         guard isFigure else { return text }
         // A name listed beside another (`AB, BE`, `AO, OB, DH, HE;`).
