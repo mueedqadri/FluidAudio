@@ -24,7 +24,10 @@ extension EnglishTextNormalizer {
                                 EnglishRomanNumerals.spell(
                                     EnglishAbbreviationTable.spellWords(EnglishOldMoney.spell($0))))))))
         }
-        pieces = rewrite(pieces, keepingOnlyDigitRewrites: false, when: nemoMayRead, holding: nemoMisreads) { written in
+        pieces = rewrite(
+            pieces, keepingOnlyDigitRewrites: false, when: nemoMayRead, holding: nemoMisreads,
+            heldAt: lettersNeMoReadsAsStates(in: pieces)
+        ) { written in
             // NeMo reads `=` as "equal sign" when a percent sits on its left, and
             // after a title it expands splits a possessive before punctuation
             // (`St. James’s.` → `Saint James’ s.`).
@@ -89,6 +92,26 @@ extension EnglishTextNormalizer {
                 options: .regularExpression) != nil
     }
 
+    /// Two capitals after a comma that NeMo reads as a US state, as in an
+    /// address (`Boston, MA` → "Massachusetts"), where they are letters: dotted,
+    /// as initials and degrees are and postal codes are not (`Alam, M.A. Alam`,
+    /// `Smith, M.A., LL.D.`), or after a label of capitals (`AC, DE meet`,
+    /// `AO, CO.`). Their positions in `pieces`, to keep them from NeMo, so the
+    /// phonemizer reads the letters.
+    private static func lettersNeMoReadsAsStates(in pieces: [Piece]) -> Set<Int> {
+        var held: Set<Int> = []
+        for index in pieces.indices.dropFirst() {
+            let piece = pieces[index], before = pieces[index - 1]
+            guard piece.source == nil, before.source == nil, before.text.hasSuffix(","),
+                piece.text.range(of: #"^[A-Z]\.?[A-Z]\.?[,.;:)]?$"#, options: .regularExpression) != nil
+            else { continue }
+            let dotted = piece.text.range(of: #"^[A-Z]\.[A-Z]\."#, options: .regularExpression) != nil
+            let afterLabel = before.text.range(of: #"^[A-Z]{1,3},$"#, options: .regularExpression) != nil
+            if dotted || afterLabel { held.insert(index) }
+        }
+        return held
+    }
+
     /// A whitespace-separated piece of the output; `source` is set when it is
     /// spoken words that replace written ones. An open piece is a written form
     /// a rule edited for the stages after it to read (`50–175` → `50 to 175`).
@@ -112,6 +135,7 @@ extension EnglishTextNormalizer {
         leavingOpen: Bool = false,
         when needsReading: (String) -> Bool = { _ in true },
         holding: (String) -> Bool = { _ in false },
+        heldAt held: Set<Int> = [],
         with rewriter: (String) -> String
     ) -> [Piece] {
         var result: [Piece] = []
@@ -185,9 +209,9 @@ extension EnglishTextNormalizer {
             }
         }
 
-        for piece in pieces {
+        for (index, piece) in pieces.enumerated() {
             let words = piece.text.split(whereSeparator: \.isWhitespace).map(String.init)
-            if piece.source == nil || piece.isOpen, !words.contains(where: holding) {
+            if piece.source == nil || piece.isOpen, !held.contains(index), !words.contains(where: holding) {
                 stretch.append(piece)
             } else {
                 flush()
