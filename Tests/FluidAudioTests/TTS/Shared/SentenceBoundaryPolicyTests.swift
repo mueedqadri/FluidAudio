@@ -25,6 +25,10 @@ final class SentenceBoundaryPolicyTests: XCTestCase {
         XCTAssertFalse(continues("She wrote for C.", "Well, I think so."))
         XCTAssertFalse(continues("Söding, J.", "Protein homology detection."))
         XCTAssertFalse(continues("Chapter I.", "The beginning."))
+        XCTAssertFalse(continues("I said to him for P.", "I’m sure of it."))
+        XCTAssertTrue(continues("By T. J.", "I’a Bromwich, M.A."))
+        XCTAssertTrue(continues("↑ Zemskov V.", "N. On repatriation of Soviet citizens."))
+        XCTAssertFalse(continues("↑ Zemskov V. N.", "On repatriation of Soviet citizens."))
     }
 
     func testReferenceWordsComeFromTheTable() {

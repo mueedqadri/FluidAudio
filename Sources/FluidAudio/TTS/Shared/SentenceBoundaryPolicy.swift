@@ -26,19 +26,17 @@ public enum SentenceBoundaryPolicy {
 
         let following = next.trimmingCharacters(in: .whitespacesAndNewlines).drop { $0 == "(" }
         guard let first = following.first else { return false }
-        let nextWord = String(following.prefix(while: \.isLetter))
+        let nextWord = openingWord(of: following)
         if beforeNumber.contains(token) { return first.isNumber }
         if EnglishAbbreviationTable.placePrefixes.contains(token) {
             guard first.isUppercase else { return false }
             return words.dropLast().last?.first?.isUppercase != true
-                || !EnglishAbbreviationTable.sentenceOpeners.contains(nextWord)
+                || !(nextWord.map(EnglishAbbreviationTable.sentenceOpeners.contains) ?? false)
         }
-        guard isInitial(token), first.isUppercase else { return false }
-        if EnglishAbbreviationTable.sentenceOpeners.contains(nextWord),
-            !following.dropFirst(nextWord.count).hasPrefix(".")
-        {
-            return false
-        }
+        // A Roman numeral's letter before another initial is an initial too (`Zemskov V. N.`).
+        let initial = isInitial(token) || (isRomanLetter(token) && isInitial(String(following.prefix(2))))
+        guard initial, first.isUppercase else { return false }
+        if let nextWord, EnglishAbbreviationTable.sentenceOpeners.contains(nextWord) { return false }
         guard let before = words.dropLast().reversed().first(where: { !isInitial(String($0)) }) else { return true }
         if before.contains(where: \.isNumber), !before.hasSuffix(",") { return false }
         return !(before.hasSuffix(",") && before.first?.isUppercase == true)
@@ -46,6 +44,22 @@ public enum SentenceBoundaryPolicy {
 
     private static let titles = Set(EnglishAbbreviationTable.spokenForms(in: .title).keys.map { $0 + "." })
     private static let beforeNumber = Set(referenceWords.map { $0 + "." })
+
+    /// The word `text` opens with, as a sentence opener would stand: alone or
+    /// with a contraction (`I’m`, `It’s` → `I`, `It`); `nil` for an initial
+    /// (`A.`) or a name glued to an apostrophe (`I’a`).
+    private static func openingWord(of text: Substring) -> String? {
+        let word = text.prefix(while: \.isLetter)
+        let rest = text.dropFirst(word.count)
+        if rest.hasPrefix(".") { return nil }
+        guard let mark = rest.first, "’'".contains(mark) else { return String(word) }
+        let suffix = rest.dropFirst().prefix(while: \.isLetter)
+        return ["m", "ll", "ve", "d", "s", "re"].contains(String(suffix)) ? String(word) : nil
+    }
+
+    private static func isRomanLetter(_ token: String) -> Bool {
+        token.count == 2 && token.hasSuffix(".") && token.first.map { "IVX".contains($0) } == true
+    }
 
     private static func isInitial(_ token: String) -> Bool {
         token.count == 2 && token.hasSuffix(".")
