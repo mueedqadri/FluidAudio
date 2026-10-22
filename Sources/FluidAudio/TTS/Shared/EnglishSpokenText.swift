@@ -21,8 +21,9 @@ extension EnglishTextNormalizer {
                     EnglishReferenceAbbreviations.spell(
                         EnglishGluedNumbers.spell(
                             EnglishFormulas.spell(
-                                EnglishRomanNumerals.spell(
-                                    EnglishAbbreviationTable.spellWords(EnglishOldMoney.spell($0))))))))
+                                EnglishPointNames.spell(
+                                    EnglishRomanNumerals.spell(
+                                        EnglishAbbreviationTable.spellWords(EnglishOldMoney.spell($0)))))))))
         }
         pieces = rewrite(
             pieces, keepingOnlyDigitRewrites: false, when: nemoMayRead, holding: nemoMisreads,
@@ -96,9 +97,16 @@ extension EnglishTextNormalizer {
     /// address (`Boston, MA` → "Massachusetts"), where they are letters: dotted,
     /// as initials and degrees are and postal codes are not (`Alam, M.A. Alam`,
     /// `Smith, M.A., LL.D.`), or after a label of capitals (`AC, DE meet`,
-    /// `AO, CO.`). Their positions in `pieces`, to keep them from NeMo, so the
-    /// phonemizer reads the letters.
+    /// `AO, CO.`); and in a heading in capitals, where they are words
+    /// (`COMMODITIES, OR OF`). Their positions in `pieces`, to keep them from
+    /// NeMo, so the phonemizer reads them.
     private static func lettersNeMoReadsAsStates(in pieces: [Piece]) -> Set<Int> {
+        if EnglishPointNames.isCapitalsPassage(pieces.map(\.text)) {
+            return Set(pieces.indices.filter {
+                pieces[$0].source == nil
+                    && pieces[$0].text.range(of: #"^[A-Z]{2}[,.;:)]?$"#, options: .regularExpression) != nil
+            })
+        }
         var held: Set<Int> = []
         for index in pieces.indices.dropFirst() {
             let piece = pieces[index], before = pieces[index - 1]

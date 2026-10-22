@@ -80,11 +80,14 @@ final class EnglishSpokenTextTests: XCTestCase {
     func testInitialsAndLabelsAreNotStates() {
         for written in [
             "Akimov, M.S. Alam, M.A. Alam, J. Albert", "Brown, P.A. Bruckman de Renstrom", "John Smith, M.A., LL.D.",
-            "Written by A. Pritzel, M.F., O.R., R.B. and others.", "AB, AC be parallel to DE, DF, and if AC, DE meet in G.",
-            "Join AO, CO.", "Draw the tangents LM, MN, NL to the circle.",
+            "Written by A. Pritzel, M.F., O.R., R.B. and others.", "Draw the tangents LM, MN, NL to the circle.",
         ] {
             XCTAssertEqual(spoken(written), written)
         }
+        XCTAssertEqual(
+            spoken("AB, AC be parallel to DE, DF, and if AC, DE meet in G."),
+            "A B, A C be parallel to D E, DF, and if A C, D E meet in G.")
+        XCTAssertEqual(spoken("Join AO, CO."), "Join A O, C O.")
         XCTAssertEqual(spoken("He lives in Boston, MA now."), "He lives in Boston, Massachusetts now.")
         XCTAssertTrue(spoken("Portland, OR 97201 is far.").hasPrefix("Portland, Oregon"))
         XCTAssertEqual(spoken("A school at Tuskegee, Alabama."), "A school at Tuskegee, Alabama.")
