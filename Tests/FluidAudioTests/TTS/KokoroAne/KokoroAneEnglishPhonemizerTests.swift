@@ -711,6 +711,30 @@ final class KokoroAneEnglishPhonemizerTests: XCTestCase {
         }
     }
 
+    /// A coordinated `read` shares the auxiliary or subject of the verb before
+    /// it; an imperative or modal first verb keeps it present.
+    func testCoordinatedReadTakesTheTenseOfTheVerbBeforeIt() async throws {
+        let phonemizer = makePhonemizer()
+        let past = [
+            "It's recognised on your Mac, then read aloud.",
+            "The letter was opened and read at once.",
+            "She opened the letter and read it twice.",
+        ]
+        for text in past {
+            let result = try await phonemizer.phonemize(text) { _ in ["x"] }
+            XCTAssertTrue(result.contains("ɹˈɛd"), "past 'read' in '\(text)', got: \(result)")
+        }
+        let present = [
+            "Sign in, then read the guide.",
+            "You must open the file and read it.",
+            "Buy the book and read it.",
+        ]
+        for text in present {
+            let result = try await phonemizer.phonemize(text) { _ in ["x"] }
+            XCTAssertFalse(result.contains("ɹˈɛd"), "present 'read' in '\(text)', got: \(result)")
+        }
+    }
+
     /// The same past reading reaches the other verbs with one: `reread`
     /// (also hyphenated) and `wound` (of `wind`), never the noun `wound`.
     func testRereadAndWoundTakePastReadings() async throws {

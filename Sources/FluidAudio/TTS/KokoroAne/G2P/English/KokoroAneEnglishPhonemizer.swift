@@ -318,37 +318,64 @@ struct KokoroAneEnglishPhonemizer: Sendable {
     /// `wound`) is past here. `NLTagger` has no tense, so the words before it
     /// decide: a perfect or passive auxiliary (`has read`, `was read`), or a
     /// third-person subject (`she read`; the present is `reads`), make it
-    /// past; `to`, a modal or `do` keep the present. Anything else, such as
-    /// `I read` or a command, stays on DEFAULT.
+    /// past; `to`, a modal or `do` keep the present. A coordinated verb takes
+    /// the tense of the verb before it (`It's recognised, then read`).
+    /// Anything else, such as `I read` or a command, stays on DEFAULT.
     private static func isPastTense(
         at index: Int,
         tokens: [(token: String, range: Range<String.Index>)],
         in text: String,
         tagger: NLTagger
     ) -> Bool {
+        // A permission named `read` (`read access`, `read only`, `read/write`) stays present.
+        if tokens[(index + 1)...].prefix(2).contains(where: { permissionWords.contains($0.token.lowercased()) }) {
+            return false
+        }
+        return tense(ofVerbAt: index, tokens: tokens, in: text, tagger: tagger, followsCoordination: true) ?? false
+    }
+
+    /// `true` past, `false` present, nil when the words before the verb at
+    /// `index` don't say.
+    private static func tense(
+        ofVerbAt index: Int,
+        tokens: [(token: String, range: Range<String.Index>)],
+        in text: String,
+        tagger: NLTagger,
+        followsCoordination: Bool
+    ) -> Bool? {
         func word(_ i: Int) -> String { tokens[i].token.lowercased() }
         func lexicalClass(_ i: Int) -> NLTag? {
             tagger.tag(at: tokens[i].range.lowerBound, unit: .word, scheme: .lexicalClass).0
         }
         func isAdverb(_ i: Int) -> Bool { pastTenseSkippedWords.contains(word(i)) || lexicalClass(i) == .adverb }
 
-        // A permission named `read` (`read access`, `read only`, `read/write`) stays present.
-        if tokens[(index + 1)...].prefix(2).contains(where: { permissionWords.contains($0.token.lowercased()) }) {
-            return false
-        }
-
         // Adverbs between the auxiliary and the verb (`had already read`).
         var before = index - 1
         while before >= 0, index - before <= 3, isAdverb(before) { before -= 1 }
-        guard before >= 0 else { return false }
+        guard before >= 0 else { return nil }
 
         if let past = auxiliaryIsPast(word(before)) { return past }
+
+        // The second of two coordinated verbs shares the first one's auxiliary
+        // or subject (`was opened and read`, `It's recognised, then read`).
+        if followsCoordination,
+            coordinators.contains(word(before)) || (tokens[before].token == "," && before < index - 1)
+        {
+            var verb = before - 1
+            while verb >= 0, !sentenceStops.contains(tokens[verb].token) {
+                if lexicalClass(verb) == .verb, auxiliaryIsPast(word(verb)) == nil {
+                    return tense(ofVerbAt: verb, tokens: tokens, in: text, tagger: tagger, followsCoordination: false)
+                }
+                verb -= 1
+            }
+            return nil
+        }
 
         let subject = word(before)
         let isName =
             tokens[before].token.first?.isUppercase == true && isPersonalName(tokens[before].range, in: text)
         let isThirdPerson = ["he", "she", "it"].contains(subject) || isName
-        guard isThirdPerson || ["i", "you", "we", "they"].contains(subject) else { return false }
+        guard isThirdPerson || ["i", "you", "we", "they"].contains(subject) else { return nil }
         if before > 0 {
             let verb = before - 1
             let opensClause =
@@ -359,10 +386,14 @@ struct KokoroAneEnglishPhonemizer: Sendable {
             // After another verb, `it`, `you` or a name is its object and `read` is bare (`make Git read`).
             if subject == "it" || subject == "you" || isName, lexicalClass(verb) == .verb { return false }
         }
-        return isThirdPerson
+        return isThirdPerson ? true : nil
     }
 
     private static let permissionWords: Set<String> = ["access", "only", "write", "execute"]
+
+    private static let coordinators: Set<String> = ["and", "or", "but"]
+
+    private static let sentenceStops: Set<String> = [".", "!", "?", ";", ":"]
 
     /// Words after which an auxiliary starts a clause, so it can be an inverted question's.
     private static let clauseOpeners: Set<String> = [
