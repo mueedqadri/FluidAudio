@@ -672,6 +672,51 @@ final class KokoroAneEnglishPhonemizerTests: XCTestCase {
         XCTAssertTrue(adjective.contains("lˈIv"), "adjective 'live' must use the diphthong, got: \(adjective)")
     }
 
+    /// `read` is past after a perfect or passive auxiliary or a third-person
+    /// subject, and present after `to`, a modal or `do`, or as a command.
+    func testReadTakesPastReadingFromTheWordsBeforeIt() async throws {
+        let phonemizer = makePhonemizer()
+        let past = [
+            "Everything you hear is read by the app.",
+            "I have read the evidence.",
+            "He's read a Chicago paper for years.",
+            "Have you read the book?",
+            "She read it again.",
+            "The letter was never read aloud.",
+            "Holmes read the note.",
+        ]
+        for text in past {
+            let result = try await phonemizer.phonemize(text) { _ in ["x"] }
+            XCTAssertTrue(result.contains("ɹˈɛd"), "past 'read' in '\(text)', got: \(result)")
+        }
+        let present = [
+            "We were always encouraged to read.",
+            "I will read it to you.",
+            "Does she read French?",
+            "Read the preface first.",
+            "If you are not sure, read the appropriate sections.",
+            "It was a good read.",
+            "I can't read it.",
+        ]
+        for text in present {
+            let result = try await phonemizer.phonemize(text) { _ in ["x"] }
+            XCTAssertTrue(result.contains("ɹˈid"), "present 'read' in '\(text)', got: \(result)")
+            XCTAssertFalse(result.contains("ɹˈɛd"), "present 'read' in '\(text)', got: \(result)")
+        }
+    }
+
+    /// The same past reading reaches the other verbs with one: `reread`
+    /// (also hyphenated) and `wound` (of `wind`), never the noun `wound`.
+    func testRereadAndWoundTakePastReadings() async throws {
+        let phonemizer = makePhonemizer()
+        let reread = try await phonemizer.phonemize("She had re-read the letter.") { _ in ["x"] }
+        XCTAssertTrue(reread.contains("ɹiɹˈɛd"), "got: \(reread)")
+        let wound = try await phonemizer.phonemize("He wound the clock.") { _ in ["x"] }
+        XCTAssertTrue(wound.contains("wˈWnd"), "got: \(wound)")
+        let noun = try await phonemizer.phonemize("The wound healed.") { _ in ["x"] }
+        XCTAssertTrue(noun.contains("wˈund"), "got: \(noun)")
+    }
+
     /// Heteronyms beat the flattened lexicon entry (which carries only the
     /// DEFAULT reading) but stay behind a caller's custom-lexicon override.
     func testCustomLexiconStillOverridesHeteronym() async throws {

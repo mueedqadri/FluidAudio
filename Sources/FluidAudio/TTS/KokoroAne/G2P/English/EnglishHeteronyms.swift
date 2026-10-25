@@ -7,7 +7,7 @@
 // not, and parsing ~640 short lines at startup costs well under a millisecond.
 
 /// Words whose pronunciation depends on part of speech, keyed
-/// lower-cased word -> coarse POS tag (DEFAULT/VERB/NOUN/ADJ/ADV) -> Misaki IPA.
+/// lower-cased word -> coarse POS tag (DEFAULT/VERB/NOUN/ADJ/ADV/PAST) -> Misaki IPA.
 enum EnglishHeteronyms {
     static let table: [String: [String: String]] = {
         var out = [String: [String: String]](minimumCapacity: 700)
@@ -459,7 +459,7 @@ radiate	ADJ:ɹˈAdiət	DEFAULT:ɹˈAdiˌAt
 ragged	DEFAULT:ɹˈæɡɪd	VERB:ɹˈæɡd
 re-count	DEFAULT:ɹˌikˈWnt	NOUN:ɹˈikˌWnt
 re-counts	DEFAULT:ɹˌikˈWnts	NOUN:ɹˈikˌWnts
-read	ADJ:ɹˈɛd	DEFAULT:ɹˈid
+read	ADJ:ɹˈɛd	DEFAULT:ɹˈid	PAST:ɹˈɛd
 rebel	DEFAULT:ɹˈɛbᵊl	VERB:ɹəbˈɛl
 rebels	DEFAULT:ɹˈɛbᵊlz	VERB:ɹəbˈɛlz
 rebid	DEFAULT:ɹˌibˈɪd	NOUN:ɹˈibˌɪd
@@ -536,7 +536,7 @@ repost	DEFAULT:ɹipˈOst	NOUN:ɹˈipˌOst
 reposts	DEFAULT:ɹipˈOsts	NOUN:ɹˈipˌOsts
 reprint	DEFAULT:ɹipɹˈɪnt	NOUN:ɹˈipɹˌɪnt
 reprints	DEFAULT:ɹipɹˈɪnts	NOUN:ɹˈipɹˌɪnts
-reread	DEFAULT:ɹˌiɹˈid	NOUN:ɹˈiɹid
+reread	DEFAULT:ɹˌiɹˈid	NOUN:ɹˈiɹid	PAST:ɹiɹˈɛd
 rereads	DEFAULT:ɹˌiɹˈidz	NOUN:ɹˈiɹidz
 rerelease	DEFAULT:ɹˌiɹɪlˈis	NOUN:ɹˈiɹɪlˌis
 rereleases	DEFAULT:ɹˌiɹɪlˈisᵻz	NOUN:ɹˈiɹɪlˌisᵻz
@@ -661,5 +661,6 @@ warehouse	DEFAULT:wˈɛɹhˌWs	VERB:wˈɛɹhˌWz
 warehouses	DEFAULT:wˈɛɹhˌWsᵻz	VERB:wˈɛɹhˌWzᵻz
 wind	DEFAULT:wˈɪnd	VERB:wˈInd
 winds	DEFAULT:wˈɪndz	VERB:wˈIndz
+wound	DEFAULT:wˈund	PAST:wˈWnd
 """
 }

@@ -3,9 +3,9 @@
 
 Keeps entries with >= 2 distinct non-null pronunciations, restricted to the
 POS buckets an NLTagger lexical-class pass can distinguish (DEFAULT / VERB /
-NOUN / ADJ / ADV). Tense-specific Penn keys (VBD/VBN/VBP) are dropped: the
-runtime tagger can't tell tense apart, so those words keep their DEFAULT
-reading, matching the pre-heteronym behavior.
+NOUN / ADJ / ADV), plus the past participle (VBN) as PAST: the tagger has no
+tense, so the phonemizer picks PAST from the words before the verb
+(`has read`, `was read`, `she read`). VBD and VBP are dropped.
 
 Usage: generate_english_heteronyms.py <us_gold.json> <output.swift>
 """
@@ -13,7 +13,8 @@ Usage: generate_english_heteronyms.py <us_gold.json> <output.swift>
 import json
 import sys
 
-KEPT_TAGS = {"DEFAULT", "VERB", "NOUN", "ADJ", "ADV"}
+KEPT_TAGS = {"DEFAULT", "VERB", "NOUN", "ADJ", "ADV", "PAST"}
+RENAMED_TAGS = {"VBN": "PAST"}
 
 
 def main() -> None:
@@ -25,9 +26,9 @@ def main() -> None:
         if not isinstance(entry, dict):
             continue
         kept = {
-            tag: ipa
+            RENAMED_TAGS.get(tag, tag): ipa
             for tag, ipa in entry.items()
-            if tag in KEPT_TAGS and ipa is not None
+            if RENAMED_TAGS.get(tag, tag) in KEPT_TAGS and ipa is not None
         }
         if "DEFAULT" not in kept or len(set(kept.values())) < 2:
             continue
@@ -47,7 +48,7 @@ def main() -> None:
         "// not, and parsing ~640 short lines at startup costs well under a millisecond.",
         "",
         "/// Words whose pronunciation depends on part of speech, keyed",
-        "/// lower-cased word -> coarse POS tag (DEFAULT/VERB/NOUN/ADJ/ADV) -> Misaki IPA.",
+        "/// lower-cased word -> coarse POS tag (DEFAULT/VERB/NOUN/ADJ/ADV/PAST) -> Misaki IPA.",
         "enum EnglishHeteronyms {",
         "    static let table: [String: [String: String]] = {",
         "        var out = [String: [String: String]](minimumCapacity: 700)",

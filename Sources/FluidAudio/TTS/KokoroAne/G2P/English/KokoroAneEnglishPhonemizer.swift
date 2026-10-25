@@ -19,7 +19,8 @@ import NaturalLanguage
 ///   6. POS-aware heteronyms (`live`, `wind`, `record`, …): the bundled
 ///      lexicon cache is flattened to one pronunciation per word, so the
 ///      Misaki gold dict's POS-keyed entries are restored here, selected
-///      by an `NLTagger` lexical-class pass over the input
+///      by an `NLTagger` lexical-class pass over the input; a past reading
+///      (`read` → `ɹˈɛd`) by the words before the verb
 ///   7. case-sensitive hit on the normalized lower-case form, then the
 ///      lower-cased Misaki lexicon hit — this is what gives function
 ///      words their weak forms (`to` → `tu`), instead of the BART G2P
@@ -297,12 +298,89 @@ struct KokoroAneEnglishPhonemizer: Sendable {
                 fresh.string = text
                 tagger = fresh
             }
-            guard let tag = tagger?.tag(at: entry.range.lowerBound, unit: .word, scheme: .lexicalClass).0,
+            guard let tagger, let tag = tagger.tag(at: entry.range.lowerBound, unit: .word, scheme: .lexicalClass).0,
                 let coarse = coarsePOSTag(tag)
             else { continue }
-            tags[index] = coarse
+            if coarse == "VERB", EnglishHeteronyms.table[normalizeKey(entry.token)]?["PAST"] != nil,
+                isPastTense(at: index, tokens: tokens, in: text, tagger: tagger)
+            {
+                tags[index] = "PAST"
+            } else {
+                tags[index] = coarse
+            }
         }
         return tags
+    }
+
+    // MARK: - Past-tense heteronyms
+
+    /// Whether a verb heteronym with a past reading (`read`, `reread`,
+    /// `wound`) is past here. `NLTagger` has no tense, so the words before it
+    /// decide: a perfect or passive auxiliary (`has read`, `was read`), or a
+    /// third-person subject (`she read`; the present is `reads`), make it
+    /// past; `to`, a modal or `do` keep the present. Anything else, such as
+    /// `I read` or a command, stays on DEFAULT.
+    private static func isPastTense(
+        at index: Int,
+        tokens: [(token: String, range: Range<String.Index>)],
+        in text: String,
+        tagger: NLTagger
+    ) -> Bool {
+        func word(_ i: Int) -> String { tokens[i].token.lowercased() }
+        func isAdverb(_ i: Int) -> Bool {
+            pastTenseSkippedWords.contains(word(i))
+                || tagger.tag(at: tokens[i].range.lowerBound, unit: .word, scheme: .lexicalClass).0 == .adverb
+        }
+
+        // Adverbs between the auxiliary and the verb (`had already read`).
+        var before = index - 1
+        while before >= 0, index - before <= 3, isAdverb(before) { before -= 1 }
+        guard before >= 0 else { return false }
+
+        if let past = auxiliaryIsPast(word(before)) { return past }
+
+        let subject = word(before)
+        let isThirdPerson =
+            ["he", "she", "it"].contains(subject)
+            || (tokens[before].token.first?.isUppercase == true
+                && isPersonalName(tokens[before].range, in: text))
+        guard isThirdPerson || ["i", "you", "we", "they"].contains(subject) else { return false }
+        // An inverted question puts the auxiliary before the subject (`have you read`, `does she read`).
+        if before > 0, let past = auxiliaryIsPast(word(before - 1)) { return past }
+        return isThirdPerson
+    }
+
+    /// `true` for a perfect or passive auxiliary, `false` for one that takes
+    /// the present (`to`, modals, `do`), nil for any other word.
+    private static func auxiliaryIsPast(_ word: String) -> Bool? {
+        if pastTenseAuxiliaries.contains(word) || word.hasSuffix("'ve")
+            || (word.hasSuffix("'s") && word != "let's")
+        {
+            return true
+        }
+        if presentTenseAuxiliaries.contains(word) || word.hasSuffix("'ll") || word.hasSuffix("n't") {
+            return false
+        }
+        return nil
+    }
+
+    private static let pastTenseAuxiliaries: Set<String> = [
+        "has", "have", "had", "having", "is", "was", "were", "are", "am", "be", "been", "being",
+    ]
+
+    private static let presentTenseAuxiliaries: Set<String> = [
+        "to", "will", "would", "can", "could", "should", "must", "may", "might", "shall",
+        "do", "does", "did", "let", "let's", "cannot",
+    ]
+
+    /// Words `NLTagger` doesn't call adverbs that still sit between an
+    /// auxiliary and its verb (`have not read`, `had all three read`).
+    private static let pastTenseSkippedWords: Set<String> = ["not", "never", "all", "both", "each"]
+
+    private static func isPersonalName(_ range: Range<String.Index>, in text: String) -> Bool {
+        let tagger = NLTagger(tagSchemes: [.nameType])
+        tagger.string = text
+        return tagger.tag(at: range.lowerBound, unit: .word, scheme: .nameType).0 == .personalName
     }
 
     /// Inflected heteronyms need a POS tag even though the full token is not
@@ -359,9 +437,9 @@ struct KokoroAneEnglishPhonemizer: Sendable {
     /// plus the finer tags the special-case words consult (`DT`/`PRP`/`IN`);
     /// nil (→ DEFAULT pronunciation) for everything else. The heteronym
     /// table only keys the four coarse buckets, so the finer tags fall to
-    /// DEFAULT there. Tense distinctions (`read`, `reread`, and `wound` past
-    /// vs present) are not resolvable at this granularity and stay on
-    /// DEFAULT; `used` is recovered via the future-`to` context instead.
+    /// DEFAULT there. Tense (`read`, `reread`, `wound`) comes from the words
+    /// before the verb (`isPastTense`); `used` is recovered via the
+    /// future-`to` context instead.
     private static func coarsePOSTag(_ tag: NLTag) -> String? {
         switch tag {
         case .verb: return "VERB"
