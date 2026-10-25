@@ -684,6 +684,8 @@ final class KokoroAneEnglishPhonemizerTests: XCTestCase {
             "She read it again.",
             "The letter was never read aloud.",
             "Holmes read the note.",
+            "Though he says he read a Chicago paper for years.",
+            "What has she read lately?",
         ]
         for text in past {
             let result = try await phonemizer.phonemize(text) { _ in ["x"] }
@@ -697,6 +699,10 @@ final class KokoroAneEnglishPhonemizerTests: XCTestCase {
             "If you are not sure, read the appropriate sections.",
             "It was a good read.",
             "I can't read it.",
+            "You can make Git read and write to this file.",
+            "If you have it read the message from the file.",
+            "All those users have read and write access.",
+            "It controls who has read access to the project.",
         ]
         for text in present {
             let result = try await phonemizer.phonemize(text) { _ in ["x"] }

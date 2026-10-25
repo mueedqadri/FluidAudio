@@ -327,9 +327,14 @@ struct KokoroAneEnglishPhonemizer: Sendable {
         tagger: NLTagger
     ) -> Bool {
         func word(_ i: Int) -> String { tokens[i].token.lowercased() }
-        func isAdverb(_ i: Int) -> Bool {
-            pastTenseSkippedWords.contains(word(i))
-                || tagger.tag(at: tokens[i].range.lowerBound, unit: .word, scheme: .lexicalClass).0 == .adverb
+        func lexicalClass(_ i: Int) -> NLTag? {
+            tagger.tag(at: tokens[i].range.lowerBound, unit: .word, scheme: .lexicalClass).0
+        }
+        func isAdverb(_ i: Int) -> Bool { pastTenseSkippedWords.contains(word(i)) || lexicalClass(i) == .adverb }
+
+        // A permission named `read` (`read access`, `read only`, `read/write`) stays present.
+        if tokens[(index + 1)...].prefix(2).contains(where: { permissionWords.contains($0.token.lowercased()) }) {
+            return false
         }
 
         // Adverbs between the auxiliary and the verb (`had already read`).
@@ -340,15 +345,29 @@ struct KokoroAneEnglishPhonemizer: Sendable {
         if let past = auxiliaryIsPast(word(before)) { return past }
 
         let subject = word(before)
-        let isThirdPerson =
-            ["he", "she", "it"].contains(subject)
-            || (tokens[before].token.first?.isUppercase == true
-                && isPersonalName(tokens[before].range, in: text))
+        let isName =
+            tokens[before].token.first?.isUppercase == true && isPersonalName(tokens[before].range, in: text)
+        let isThirdPerson = ["he", "she", "it"].contains(subject) || isName
         guard isThirdPerson || ["i", "you", "we", "they"].contains(subject) else { return false }
-        // An inverted question puts the auxiliary before the subject (`have you read`, `does she read`).
-        if before > 0, let past = auxiliaryIsPast(word(before - 1)) { return past }
+        if before > 0 {
+            let verb = before - 1
+            let opensClause =
+                verb == 0 || tokens[verb - 1].token.first?.isLetter != true
+                || clauseOpeners.contains(word(verb - 1))
+            // An inverted question puts the auxiliary before the subject (`have you read`, `does she read`).
+            if opensClause, let past = auxiliaryIsPast(word(verb)) { return past }
+            // After another verb, `it`, `you` or a name is its object and `read` is bare (`make Git read`).
+            if subject == "it" || subject == "you" || isName, lexicalClass(verb) == .verb { return false }
+        }
         return isThirdPerson
     }
+
+    private static let permissionWords: Set<String> = ["access", "only", "write", "execute"]
+
+    /// Words after which an auxiliary starts a clause, so it can be an inverted question's.
+    private static let clauseOpeners: Set<String> = [
+        "and", "or", "but", "if", "what", "where", "when", "why", "how", "which", "who",
+    ]
 
     /// `true` for a perfect or passive auxiliary, `false` for one that takes
     /// the present (`to`, modals, `do`), nil for any other word.
