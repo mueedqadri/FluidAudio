@@ -19,7 +19,7 @@ import NaturalLanguage
 ///   6. POS-aware heteronyms (`live`, `wind`, `record`, …): the bundled
 ///      lexicon cache is flattened to one pronunciation per word, so the
 ///      Misaki gold dict's POS-keyed entries are restored here, selected
-///      by an `NLTagger` lexical-class pass over the input; a past reading
+///      by an `EnglishPOSTagger` pass over the input; a past reading
 ///      (`read` → `ɹˈɛd`) by the words before the verb
 ///   7. case-sensitive hit on the normalized lower-case form, then the
 ///      lower-cased Misaki lexicon hit — this is what gives function
@@ -280,29 +280,30 @@ struct KokoroAneEnglishPhonemizer: Sendable {
     // MARK: - Heteronym POS tagging
 
     /// Coarse POS tags (`VERB`/`NOUN`/`ADJ`/`ADV`) for the tokens that are
-    /// heteronyms, keyed by token index. The tagger is only constructed when
-    /// the input actually contains one, so the common path pays a single
-    /// table lookup per word or a small number of candidate-stem lookups.
-    /// Tags are resolved up front (no awaits), keeping the non-Sendable
-    /// `NLTagger` out of the async resolution loop.
+    /// heteronyms, keyed by token index. The sentence is only tagged when it
+    /// actually contains one, so the common path pays a single table lookup
+    /// per word or a small number of candidate-stem lookups. Tags come from
+    /// the bundled `EnglishPOSTagger`, not `NLTagger`, whose lexical classes
+    /// are all `OtherWord` on iOS 27.
     private static func heteronymTags(
         for tokens: [(token: String, range: Range<String.Index>)],
         in text: String
     ) -> [Int: String] {
+        guard tokens.contains(where: { mightNeedHeteronymTag($0.token) }), let tagger = EnglishPOSTagger.shared
+        else { return [:] }
+        // A hyphenated heteronym is tagged as the word it reads as (`re-read` → `reread`).
+        let taggerTokens = tokens.map { entry in
+            entry.token.contains("-") && EnglishHeteronyms.table[normalizeKey(entry.token)] != nil
+                ? (token: entry.token.replacingOccurrences(of: "-", with: ""), range: entry.range) : entry
+        }
+        let posTags = tagger.tags(forWordTokens: taggerTokens, in: text)
         var tags: [Int: String] = [:]
-        var tagger: NLTagger?
         for (index, entry) in tokens.enumerated() {
-            guard mightNeedHeteronymTag(entry.token) else { continue }
-            if tagger == nil {
-                let fresh = NLTagger(tagSchemes: [.lexicalClass])
-                fresh.string = text
-                tagger = fresh
+            guard mightNeedHeteronymTag(entry.token), let coarse = posTags[index].flatMap(coarsePOSTag) else {
+                continue
             }
-            guard let tagger, let tag = tagger.tag(at: entry.range.lowerBound, unit: .word, scheme: .lexicalClass).0,
-                let coarse = coarsePOSTag(tag)
-            else { continue }
             if coarse == "VERB", EnglishHeteronyms.table[normalizeKey(entry.token)]?["PAST"] != nil,
-                isPastTense(at: index, tokens: tokens, in: text, tagger: tagger)
+                isPastTense(at: index, tokens: tokens, in: text, posTags: posTags)
             {
                 tags[index] = "PAST"
             } else {
@@ -315,8 +316,9 @@ struct KokoroAneEnglishPhonemizer: Sendable {
     // MARK: - Past-tense heteronyms
 
     /// Whether a verb heteronym with a past reading (`read`, `reread`,
-    /// `wound`) is past here. `NLTagger` has no tense, so the words before it
-    /// decide: a perfect or passive auxiliary (`has read`, `was read`), or a
+    /// `wound`) is past here. The tagger's tense is unreliable for these
+    /// (`Please read` comes out past), so the words before the verb decide: a
+    /// perfect or passive auxiliary (`has read`, `was read`), or a
     /// third-person subject (`she read`; the present is `reads`), make it
     /// past; `to`, a modal or `do` keep the present. A coordinated verb takes
     /// the tense of the verb before it (`It's recognised, then read`).
@@ -325,13 +327,13 @@ struct KokoroAneEnglishPhonemizer: Sendable {
         at index: Int,
         tokens: [(token: String, range: Range<String.Index>)],
         in text: String,
-        tagger: NLTagger
+        posTags: [String?]
     ) -> Bool {
         // A permission named `read` (`read access`, `read only`, `read/write`) stays present.
         if tokens[(index + 1)...].prefix(2).contains(where: { permissionWords.contains($0.token.lowercased()) }) {
             return false
         }
-        return tense(ofVerbAt: index, tokens: tokens, in: text, tagger: tagger, followsCoordination: true) ?? false
+        return tense(ofVerbAt: index, tokens: tokens, in: text, posTags: posTags, followsCoordination: true) ?? false
     }
 
     /// `true` past, `false` present, nil when the words before the verb at
@@ -340,14 +342,14 @@ struct KokoroAneEnglishPhonemizer: Sendable {
         ofVerbAt index: Int,
         tokens: [(token: String, range: Range<String.Index>)],
         in text: String,
-        tagger: NLTagger,
+        posTags: [String?],
         followsCoordination: Bool
     ) -> Bool? {
         func word(_ i: Int) -> String { tokens[i].token.lowercased() }
-        func lexicalClass(_ i: Int) -> NLTag? {
-            tagger.tag(at: tokens[i].range.lowerBound, unit: .word, scheme: .lexicalClass).0
+        func isVerb(_ i: Int) -> Bool { posTags[i].flatMap(coarsePOSTag) == "VERB" }
+        func isAdverb(_ i: Int) -> Bool {
+            pastTenseSkippedWords.contains(word(i)) || posTags[i].flatMap(coarsePOSTag) == "ADV"
         }
-        func isAdverb(_ i: Int) -> Bool { pastTenseSkippedWords.contains(word(i)) || lexicalClass(i) == .adverb }
 
         // Adverbs between the auxiliary and the verb (`had already read`).
         var before = index - 1
@@ -363,8 +365,8 @@ struct KokoroAneEnglishPhonemizer: Sendable {
         {
             var verb = before - 1
             while verb >= 0, !sentenceStops.contains(tokens[verb].token) {
-                if lexicalClass(verb) == .verb, auxiliaryIsPast(word(verb)) == nil {
-                    return tense(ofVerbAt: verb, tokens: tokens, in: text, tagger: tagger, followsCoordination: false)
+                if isVerb(verb), auxiliaryIsPast(word(verb)) == nil {
+                    return tense(ofVerbAt: verb, tokens: tokens, in: text, posTags: posTags, followsCoordination: false)
                 }
                 verb -= 1
             }
@@ -384,7 +386,7 @@ struct KokoroAneEnglishPhonemizer: Sendable {
             // An inverted question puts the auxiliary before the subject (`have you read`, `does she read`).
             if opensClause, let past = auxiliaryIsPast(word(verb)) { return past }
             // After another verb, `it`, `you` or a name is its object and `read` is bare (`make Git read`).
-            if subject == "it" || subject == "you" || isName, lexicalClass(verb) == .verb { return false }
+            if subject == "it" || subject == "you" || isName, isVerb(verb) { return false }
         }
         return isThirdPerson ? true : nil
     }
@@ -423,10 +425,13 @@ struct KokoroAneEnglishPhonemizer: Sendable {
         "do", "does", "did", "let", "let's", "cannot",
     ]
 
-    /// Words `NLTagger` doesn't call adverbs that still sit between an
+    /// Words the tagger doesn't call adverbs that still sit between an
     /// auxiliary and its verb (`have not read`, `had all three read`).
     private static let pastTenseSkippedWords: Set<String> = ["not", "never", "all", "both", "each"]
 
+    /// Penn tags can't tell a name from a capitalized word (`Please` is NNP), so
+    /// this stays on `NLTagger`; where its tagger finds nothing (iOS 27) a
+    /// subject reads as no name and the verb stays present.
     private static func isPersonalName(_ range: Range<String.Index>, in text: String) -> Bool {
         let tagger = NLTagger(tagSchemes: [.nameType])
         tagger.string = text
@@ -436,7 +441,7 @@ struct KokoroAneEnglishPhonemizer: Sendable {
     /// Inflected heteronyms need a POS tag even though the full token is not
     /// itself in the heteronym table (`lived` must re-resolve `live` as a
     /// verb). Probe the same bounded candidate set used by the inflection
-    /// resolvers, keeping the `NLTagger` lazy on the ordinary path.
+    /// resolvers, keeping the tagger lazy on the ordinary path.
     /// Context-sensitive function words whose `specialCase` branch consults
     /// the POS tag (`a` DT, `I` PRP, `by` ADV, `in` IN, `used` VERB/ADJ,
     /// `that` DT, `am`/`an` NOUN guards).
@@ -483,22 +488,20 @@ struct KokoroAneEnglishPhonemizer: Sendable {
         return stems.contains { EnglishHeteronyms.table[normalizeKey($0)] != nil }
     }
 
-    /// Maps an `NLTagger` lexical class onto the Misaki gold-dict POS buckets
-    /// plus the finer tags the special-case words consult (`DT`/`PRP`/`IN`);
-    /// nil (→ DEFAULT pronunciation) for everything else. The heteronym
-    /// table only keys the four coarse buckets, so the finer tags fall to
-    /// DEFAULT there. Tense (`read`, `reread`, `wound`) comes from the words
-    /// before the verb (`isPastTense`); `used` is recovered via the
-    /// future-`to` context instead.
-    private static func coarsePOSTag(_ tag: NLTag) -> String? {
+    /// Maps a Penn tag onto the Misaki gold-dict POS buckets (Misaki
+    /// `get_parent_tag`) plus the finer tags the special-case words consult
+    /// (`DT`/`PRP`/`IN`); nil (→ DEFAULT pronunciation) for everything else.
+    /// The heteronym table only keys the four coarse buckets, so the finer
+    /// tags fall to DEFAULT there. Tense (`read`, `reread`, `wound`) comes
+    /// from the words before the verb (`isPastTense`); `used` is recovered
+    /// via the future-`to` context instead.
+    private static func coarsePOSTag(_ tag: String) -> String? {
+        if tag.hasPrefix("VB") { return "VERB" }
+        if tag.hasPrefix("NN") { return "NOUN" }
+        if tag.hasPrefix("JJ") { return "ADJ" }
+        if tag.hasPrefix("RB") || tag == "RP" { return "ADV" }
         switch tag {
-        case .verb: return "VERB"
-        case .noun: return "NOUN"
-        case .adjective: return "ADJ"
-        case .adverb: return "ADV"
-        case .determiner: return "DT"
-        case .pronoun: return "PRP"
-        case .preposition: return "IN"
+        case "DT", "PRP", "IN": return tag
         default: return nil
         }
     }
@@ -610,9 +613,9 @@ struct KokoroAneEnglishPhonemizer: Sendable {
             // reads the strong form here regardless of context.
             return "ðˈæts"
         case "a":
-            // spaCy tags standalone `a` as DT essentially always; NLTagger
-            // sometimes returns no tag, so default the lowercase article to
-            // the reduced form rather than the citation `ˈA`.
+            // spaCy tags standalone `a` as DT essentially always; with no
+            // tag (the tagger failed to load) default the lowercase article
+            // to the reduced form rather than the citation `ˈA`.
             return posTag == nil || posTag == "DT" ? "ɐ" : "ˈA"
         case "A":
             return posTag == "DT" ? "ɐ" : "ˈA"
@@ -635,8 +638,8 @@ struct KokoroAneEnglishPhonemizer: Sendable {
             }
         case "in", "In", "IN":
             // Misaki: primary stress unless it's a plain preposition with
-            // known following context. Treat a missing tag as IN — NLTagger
-            // skips common prepositions more often than spaCy does.
+            // known following context. Treat a missing tag (the tagger
+            // failed to load) as IN, the common case.
             let isPreposition = posTag == nil || posTag == "IN"
             return context.futureVowel == nil || !isPreposition ? "ˈɪn" : "ɪn"
         case "the", "The", "THE":
@@ -645,8 +648,8 @@ struct KokoroAneEnglishPhonemizer: Sendable {
             return resolveFromLexicon("versus", context: context)
         case "used", "Used", "USED":
             // golds["used"]: VBD `jˈust` before an infinitive ("used to"),
-            // DEFAULT `jˈuzd` otherwise. NLTagger has no tense, so accept
-            // verb/adjective plus the future-to context like Misaki does.
+            // DEFAULT `jˈuzd` otherwise. Accept any verb/adjective tag plus
+            // the future-to context like Misaki does.
             if (posTag == "VERB" || posTag == "ADJ"), context.futureTo {
                 return "jˈust"
             }

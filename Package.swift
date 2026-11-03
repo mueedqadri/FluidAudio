@@ -27,7 +27,10 @@ let package = Package(
                 "MachTaskSelfWrapper",
                 "NemoTextProcessing",
             ],
-            path: "Sources/FluidAudio"
+            path: "Sources/FluidAudio",
+            resources: [
+                .copy("TTS/KokoroAne/G2P/English/EnglishPOSTagger.bin")
+            ]
         ),
         // NVIDIA NeMo text normalization (compiled FSTs), prebuilt from
         // FluidInference/text-processing-rs; the release upstream FluidAudio pins.

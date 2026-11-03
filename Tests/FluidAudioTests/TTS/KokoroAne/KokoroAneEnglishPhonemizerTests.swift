@@ -672,6 +672,16 @@ final class KokoroAneEnglishPhonemizerTests: XCTestCase {
         XCTAssertTrue(adjective.contains("lˈIv"), "adjective 'live' must use the diphthong, got: \(adjective)")
     }
 
+    /// Sentences `NLTagger` tags as all `OtherWord` on iOS 27 (and some it
+    /// mistags on macOS) still read the verb, since the bundled tagger decides.
+    func testHeteronymLiveReadsAsVerbAfterASubject() async throws {
+        let phonemizer = makePhonemizer()
+        for text in ["\u{201C}I live at West Egg.\u{201D}", "I live in Toronto.", "Animals live in the forest."] {
+            let result = try await phonemizer.phonemize(text) { _ in ["x"] }
+            XCTAssertTrue(result.contains("lˈɪv"), "verb 'live' in '\(text)', got: \(result)")
+        }
+    }
+
     /// `read` is past after a perfect or passive auxiliary or a third-person
     /// subject, and present after `to`, a modal or `do`, or as a command.
     func testReadTakesPastReadingFromTheWordsBeforeIt() async throws {
