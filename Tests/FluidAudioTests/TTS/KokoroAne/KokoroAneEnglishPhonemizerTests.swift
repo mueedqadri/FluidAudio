@@ -672,6 +672,19 @@ final class KokoroAneEnglishPhonemizerTests: XCTestCase {
         XCTAssertTrue(adjective.contains("lˈIv"), "adjective 'live' must use the diphthong, got: \(adjective)")
     }
 
+    /// The tagger calls a lone `A` a determiner, but an article needs a word
+    /// after it: before closing punctuation `a` is the letter.
+    func testLetterABeforeClosingPunctuation() async throws {
+        let phonemizer = makePhonemizer()
+        for text in ["In Table 3 rows (A), we vary it.", "Simon A. Kohl wrote it.", "Find the value of a."] {
+            let result = try await phonemizer.phonemize(text) { _ in ["x"] }
+            XCTAssertTrue(result.contains("ˈA"), "letter 'a' in '\(text)', got: \(result)")
+            XCTAssertFalse(result.contains("ɐ"), "no article in '\(text)', got: \(result)")
+        }
+        let article = try await phonemizer.phonemize("Such a student will come back with a") { _ in ["x"] }
+        XCTAssertFalse(article.contains("ˈA"), "articles stay reduced, got: \(article)")
+    }
+
     /// Sentences `NLTagger` tags as all `OtherWord` on iOS 27 (and some it
     /// mistags on macOS) still read the verb, since the bundled tagger decides.
     func testHeteronymLiveReadsAsVerbAfterASubject() async throws {

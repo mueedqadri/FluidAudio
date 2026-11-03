@@ -148,8 +148,11 @@ struct KokoroAneEnglishPhonemizer: Sendable {
                 continue
             }
 
+            var wordContext = context
+            wordContext.beforeClosingPunctuation =
+                index + 1 < tokens.count && Self.closingPunctuation.contains(tokens[index + 1].token)
             let ipa = try await resolveWord(
-                repairs[index] ?? token, posTag: heteronymTags[index], context: context, fallback: fallback)
+                repairs[index] ?? token, posTag: heteronymTags[index], context: wordContext, fallback: fallback)
             resolved[index] = ipa
             context = Self.tokenContext(context, phonemes: ipa, token: token)
         }
@@ -242,11 +245,15 @@ struct KokoroAneEnglishPhonemizer: Sendable {
 
     /// Right-to-left resolution context: `futureVowel` is whether the next
     /// pronounced sound is a vowel (`nil` at utterance end or across
-    /// non-quote punctuation), `futureTo` is whether the next token is `to`.
+    /// non-quote punctuation), `futureTo` is whether the next token is `to`,
+    /// `beforeClosingPunctuation` whether the next token is `.` `,` `)` and the like.
     struct TokenContext: Sendable {
         var futureVowel: Bool? = nil
         var futureTo: Bool = false
+        var beforeClosingPunctuation = false
     }
+
+    private static let closingPunctuation: Set<String> = [".", ",", ";", ":", "!", "?", ")", "]"]
 
     private static let nonQuotePuncts = Set(";:,.!?—…()")
 
@@ -613,11 +620,16 @@ struct KokoroAneEnglishPhonemizer: Sendable {
             // reads the strong form here regardless of context.
             return "ðˈæts"
         case "a":
+            // An article needs a word after it, so before closing punctuation
+            // it is the letter (`option (a)`, `the value of a.`), whatever the tag.
+            if context.beforeClosingPunctuation { return "ˈA" }
             // spaCy tags standalone `a` as DT essentially always; with no
             // tag (the tagger failed to load) default the lowercase article
             // to the reduced form rather than the citation `ˈA`.
             return posTag == nil || posTag == "DT" ? "ɐ" : "ˈA"
         case "A":
+            // The letter before closing punctuation (`rows (A)`, `A. Pritzel`).
+            if context.beforeClosingPunctuation { return "ˈA" }
             return posTag == "DT" ? "ɐ" : "ˈA"
         case "am", "Am", "AM":
             if posTag == "NOUN" { return nil }
