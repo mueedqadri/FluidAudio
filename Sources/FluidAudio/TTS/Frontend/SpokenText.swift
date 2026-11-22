@@ -43,14 +43,17 @@ extension SpokenTextFrontend {
 }
 
 /// The fork's rules: English through ``EnglishTextNormalizer/spokenText(_:)``
-/// (our rules, NeMo, the number fallback); other languages as written.
+/// (our rules, NeMo, the number fallback), Hindi through
+/// ``HindiTextNormalizer/spokenText(_:)``; other languages as written.
 public struct RuleFrontend: SpokenTextFrontend {
     public init() {}
 
     public func spokenText(_ text: String, language: String) -> SpokenText {
-        let base = Self.baseLanguage(language)
-        guard base == "en" else { return SpokenText(text: text, language: base) }
-        return EnglishTextNormalizer.spokenText(text)
+        switch Self.baseLanguage(language) {
+        case "en": EnglishTextNormalizer.spokenText(text)
+        case "hi": HindiTextNormalizer.spokenText(text)
+        case let base: SpokenText(text: text, language: base)
+        }
     }
 }
 
