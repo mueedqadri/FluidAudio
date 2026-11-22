@@ -13,8 +13,8 @@ import Foundation
 /// decimal point, and the other separator, or a space, joins groups of three
 /// (`2 743 357`, `5,066`). The other separator before anything but a group of
 /// three is a decimal point too (`0.1` in a Spanish text). Digits glued to a
-/// Latin letter (`km2`, `A4`), clock times and German ordinals (`13.`) are left
-/// for the voice, which reads them as they are.
+/// letter (`km2`, `1º`), clock times, dates joined by `/` or `·` (`6·25`) and
+/// German ordinals (`13.`) are left for the voice, which reads them as they are.
 ///
 /// No expansions are recorded: Supertonic's highlights are estimated from the
 /// page text, not from word timings.
@@ -99,13 +99,26 @@ public enum SpokenNumbers {
 
         /// Codes, times and ordinals the voice reads as written.
         func leftAlone(_ m: Match) -> Bool {
-            if let b = m.before, b.isASCII, b.isLetter { return true }
-            if let a = m.after, a.isASCII, a.isLetter, !m.percent { return true }
-            if [":", "/"].contains(m.before) || [":", "/"].contains(m.after) { return true }
+            if let b = m.before, Self.isGluedLetter(b) { return true }
+            if let a = m.after, Self.isGluedLetter(a), !m.percent { return true }
+            if [":", "/", "·"].contains(m.before) || [":", "/", "·"].contains(m.after) { return true }
             if language == "de", m.after == ".", m.afterNext == nil || m.afterNext?.isWhitespace == true {
                 return true
             }
             return false
+        }
+
+        /// A letter that makes the digits part of a code or an ordinal (`km2`,
+        /// `1º`, `2ª`, `1er`), not a counter such as 区 or 년 that follows a
+        /// number in Japanese and Korean.
+        static func isGluedLetter(_ c: Character) -> Bool {
+            guard c.isLetter, let scalar = c.unicodeScalars.first else { return false }
+            switch scalar.value {
+            case 0x1100...0x11FF, 0x3040...0x30FF, 0x3130...0x318F, 0x3400...0x4DBF, 0x4E00...0x9FFF, 0xAC00...0xD7AF:
+                return false
+            default:
+                return true
+            }
         }
 
         /// `value` (digits and separators as written) in words, or "" when it

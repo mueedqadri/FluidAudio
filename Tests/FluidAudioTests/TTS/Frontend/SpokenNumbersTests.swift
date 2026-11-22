@@ -54,6 +54,10 @@ final class SpokenNumbersTests: XCTestCase {
         XCTAssertEqual(spoken("km2 und A4", "de"), "km2 und A4")
         XCTAssertEqual(spoken("le 21/04", "fr"), "le 21/04")
         XCTAssertEqual(spoken("code 007", "fr"), "code 007")
+        XCTAssertEqual(spoken("successivement: 1º Les noms, 2º partie", "fr"), "successivement: 1º Les noms, 2º partie")
+        XCTAssertEqual(spoken("o 1º de maio, a 2ª edição", "pt"), "o 1º de maio, a 2ª edição")
+        XCTAssertEqual(spoken("le 1er mai", "fr"), "le 1er mai")
+        XCTAssertEqual(spoken("6·25 전쟁으로", "ko"), "6·25 전쟁으로")
     }
 
     func testSentenceEndsAndListsKeepTheirPunctuation() {
