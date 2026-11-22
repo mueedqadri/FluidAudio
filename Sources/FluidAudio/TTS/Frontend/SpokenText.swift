@@ -44,7 +44,8 @@ extension SpokenTextFrontend {
 
 /// The fork's rules: English through ``EnglishTextNormalizer/spokenText(_:)``
 /// (our rules, NeMo, the number fallback), Hindi through
-/// ``HindiTextNormalizer/spokenText(_:)``; other languages as written.
+/// ``HindiTextNormalizer/spokenText(_:)``, the other languages Supertonic reads
+/// with their numbers in words (``SpokenNumbers``); the rest as written.
 public struct RuleFrontend: SpokenTextFrontend {
     public init() {}
 
@@ -52,6 +53,7 @@ public struct RuleFrontend: SpokenTextFrontend {
         switch Self.baseLanguage(language) {
         case "en": EnglishTextNormalizer.spokenText(text)
         case "hi": HindiTextNormalizer.spokenText(text)
+        case let base where SpokenNumbers.languages.contains(base): SpokenNumbers.spokenText(text, language: base)
         case let base: SpokenText(text: text, language: base)
         }
     }

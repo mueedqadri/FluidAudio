@@ -12,8 +12,8 @@ final class SpokenTextFrontendTests: XCTestCase {
     }
 
     func testRuleFrontendLeavesOtherLanguagesAsWritten() {
-        let spoken = RuleFrontend().spokenText("Il a payé 4,50 €.", language: "fr-FR")
-        XCTAssertEqual(spoken, SpokenText(text: "Il a payé 4,50 €.", language: "fr"))
+        let spoken = RuleFrontend().spokenText("Он заплатил 4,50 €.", language: "ru-RU")
+        XCTAssertEqual(spoken, SpokenText(text: "Он заплатил 4,50 €.", language: "ru"))
     }
 
     func testPassthroughKeepsTheText() {
