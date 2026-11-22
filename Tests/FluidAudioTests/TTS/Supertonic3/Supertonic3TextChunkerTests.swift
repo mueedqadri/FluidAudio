@@ -58,6 +58,7 @@ final class Supertonic3TextChunkerTests: XCTestCase {
             ("de", "Die Bremer Stadtmusikanten sind Märchen Nr. siebenundzwanzig der Brüder Grimm."),
             ("it", "La citazione viene da Rendina, duemilasette, p. trecentoventisei del libro."),
             ("es", "El Sr. García llegó tarde a casa aquella noche de invierno."),
+            ("de", "Berlin wurde im 13. Jahrhundert erstmals urkundlich erwähnt."),
             ("en", "It was written by J. Smith in the spring of that year."),
         ] {
             let chunks = Supertonic3TextChunker.chunk(

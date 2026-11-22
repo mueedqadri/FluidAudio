@@ -17,6 +17,7 @@ public enum SentenceBoundaryPolicy {
             titles, EnglishAbbreviationTable.neverEndASentence, EnglishAbbreviationTable.placePrefixes,
             EnglishAbbreviationTable.sentenceOpeners, beforeNumber,
             LanguageAbbreviations.titles, LanguageAbbreviations.neverEndASentence, LanguageAbbreviations.beforeNumber,
+            LanguageAbbreviations.ordinalLeads, Set(LanguageAbbreviations.ordinalNouns),
         ].map { $0.sorted().joined(separator: ",") }
         var hash: UInt64 = 0xcbf2_9ce4_8422_2325
         for byte in lists.joined(separator: "|").utf8 {
@@ -26,10 +27,10 @@ public enum SentenceBoundaryPolicy {
     }()
 
     /// Bump when `continuesAcrossBoundary` decides differently from the same lists.
-    static let rulesVersion = 1
+    static let rulesVersion = 2
 
     /// Whether `text` ends in an abbreviation that `next` continues: a title, a
-    /// Latin abbreviation, a reference word before a number, a saint's or
+    /// Latin abbreviation, a German ordinal (`im 13. Jahrhundert`), a reference word before a number, a saint's or
     /// mountain's prefix before a name, or a name's initial before a capitalized
     /// word (`J. Smith`). Not an initial that is a Roman numeral (`I`, `V`, `X`,
     /// which end headings), one after a surname and a comma (`Söding, J.` ends a
@@ -54,6 +55,11 @@ public enum SentenceBoundaryPolicy {
         let following = next.trimmingCharacters(in: .whitespacesAndNewlines).drop { $0 == "(" }
         guard let first = following.first else { return false }
         let nextWord = openingWord(of: following)
+        if isOrdinal(lastWord) {
+            let lead = words.dropLast().last.map { $0.lowercased().filter(\.isLetter) }
+            return lead.map(LanguageAbbreviations.ordinalLeads.contains) == true || first.isLowercase
+                || LanguageAbbreviations.ordinalNouns.contains { following.hasPrefix($0) }
+        }
         // Another language's reference word only before a number: `S.` is also an initial.
         if LanguageAbbreviations.beforeNumber.contains(token), first.isNumber { return true }
         if beforeNumber.contains(token) { return first.isNumber }
@@ -93,6 +99,11 @@ public enum SentenceBoundaryPolicy {
         guard let mark = rest.first, "’'".contains(mark) else { return String(word) }
         let suffix = rest.dropFirst().prefix(while: \.isLetter)
         return ["m", "ll", "ve", "d", "s", "re"].contains(String(suffix)) ? String(word) : nil
+    }
+
+    /// A German ordinal as written: one to three digits and a period (`13.`).
+    private static func isOrdinal(_ word: Substring) -> Bool {
+        word.count >= 2 && word.count <= 4 && word.hasSuffix(".") && word.dropLast().allSatisfy { $0.isASCII && $0.isNumber }
     }
 
     private static func isRomanLetter(_ token: String) -> Bool {

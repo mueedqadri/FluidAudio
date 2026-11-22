@@ -48,12 +48,29 @@ final class SentenceBoundaryPolicyTests: XCTestCase {
         XCTAssertFalse(continues("Er wohnt in Nr.", "Dann zog er um."))
     }
 
+    func testGermanOrdinalsContinue() {
+        XCTAssertTrue(continues("Berlin wurde im 13.", "Jahrhundert erstmals urkundlich erwähnt."))
+        XCTAssertTrue(continues("Die Mauer fiel am 9.", "November 1989."))
+        XCTAssertTrue(continues("Abgerufen am 12.", "März 2025."))
+        XCTAssertTrue(continues("Große Ausgabe, 7.", "Auflage, Göttingen."))
+        XCTAssertTrue(continues("die Straße des 17.", "Juni führt zum Tor."))
+        XCTAssertTrue(continues("Hertha BSC und der 1.", "FC Union Berlin."))
+        XCTAssertTrue(continues("Berlin ist die 13.", "größte Stadt."))
+    }
+
+    func testANumberAtTheEndOfASentenceStillEndsIt() {
+        XCTAssertFalse(continues("im Jahr 2008 319.", "Im Vergleich der Stadtstaaten."))
+        XCTAssertFalse(continues("Die A 103 kreuzt die A 111.", "Die Brücke ist alt."))
+        XCTAssertFalse(continues("I was then 13.", "The year after, I left."))
+        XCTAssertFalse(continues("I am 13.", "The year after, I left."))
+    }
+
     func testReferenceWordsComeFromTheTable() {
         XCTAssertTrue(SentenceBoundaryPolicy.referenceWords.isSuperset(of: ["Fig", "pp", "secs", "Art", "Para", "Pt", "Op"]))
     }
 
     func testTheFingerprintIsStable() {
         XCTAssertEqual(SentenceBoundaryPolicy.fingerprint, SentenceBoundaryPolicy.fingerprint)
-        XCTAssertTrue(SentenceBoundaryPolicy.fingerprint.hasPrefix("1-"))
+        XCTAssertTrue(SentenceBoundaryPolicy.fingerprint.hasPrefix("2-"))
     }
 }
