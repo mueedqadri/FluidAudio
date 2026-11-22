@@ -133,11 +133,12 @@ public enum HindiTextNormalizer {
 
     // MARK: - Signs Supertonic cannot read
 
-    /// ॥ is a full stop, ॐ is "om", ऋ and ॠ are said "ri" and "rī" in Hindi,
+    /// ॥ is a full stop, and so is `|`, which OCR writes for । and Supertonic's
+    /// cleanup deletes; ॐ is "om", ऋ and ॠ are said "ri" and "rī" in Hindi,
     /// ऍ and ॅ are the æ of English loans, which Hindi says as ऐ. ऽ only
     /// lengthens a vowel and ॰ only marks an abbreviation, so both go.
     private static let signs: [Unicode.Scalar: String] = [
-        "\u{0965}": "। ", "\u{0950}": "ओम", "\u{090B}": "रि", "\u{0960}": "री",
+        "\u{0965}": "। ", "|": "।", "\u{0950}": "ओम", "\u{090B}": "रि", "\u{0960}": "री",
         "\u{090D}": "ऐ", "\u{0945}": "\u{0948}", "\u{093D}": "", "\u{0970}": "",
     ]
 
@@ -151,7 +152,7 @@ public enum HindiTextNormalizer {
                 out.append(scalar)
             }
         }
-        return String(out)
+        return String(out).replacingOccurrences(of: #"।(?:\s*।)+"#, with: "।", options: .regularExpression)
     }
 
     // MARK: - Helpers

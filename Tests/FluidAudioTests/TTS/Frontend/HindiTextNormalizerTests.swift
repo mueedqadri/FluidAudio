@@ -71,14 +71,19 @@ final class HindiTextNormalizerTests: XCTestCase {
         XCTAssertEqual(spoken("बॅट"), "बैट")
     }
 
+    func testAPipeIsTheFullStopOCRWroteForADanda() {
+        XCTAssertEqual(spoken("बडी प्रसन्नता होती है | प्रस्तुत पुस्तक"), "बडी प्रसन्नता होती है । प्रस्तुत पुस्तक")
+        XCTAssertEqual(spoken("परावरे |।"), "परावरे ।")
+    }
+
     func testPlainHindiIsUnchanged() {
         XCTAssertEqual(spoken("मुझे चाय पसंद है।"), "मुझे चाय पसंद है।")
         XCTAssertEqual(spoken("3,4 और 5"), "तीन,चार और पाँच")
     }
 
     func testOutputHasOnlyScalarsSupertonicReads() {
-        let input = "॥ ॐ ॥ सन् १९४७ में ऋषि डॉ॰ शर्मा ने ₹१,००,००० दिए, ९५% सोऽहम् बॅट।"
-        let unreadable: Set<UInt32> = [0x0965, 0x0950, 0x093D, 0x0970, 0x090B, 0x0960, 0x090D, 0x0945]
+        let input = "| ॥ ॐ ॥ सन् १९४७ में ऋषि डॉ॰ शर्मा ने ₹१,००,००० दिए, ९५% सोऽहम् बॅट।"
+        let unreadable: Set<UInt32> = [0x7C, 0x0965, 0x0950, 0x093D, 0x0970, 0x090B, 0x0960, 0x090D, 0x0945]
         let output = spoken(input)
         for scalar in output.unicodeScalars {
             XCTAssertFalse((0x0966...0x096F).contains(scalar.value), "digit \(scalar) in \(output)")
