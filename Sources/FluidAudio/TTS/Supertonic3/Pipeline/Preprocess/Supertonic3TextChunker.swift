@@ -326,11 +326,13 @@ enum Supertonic3TextChunker {
             let punc = String(text[puncRange])
 
             // Only a period can end an abbreviation. The app's sentence cut asks the same
-            // table; a piece also never splits after a word that only may end a sentence.
+            // table; a piece also never splits after a reference word (its number is a word
+            // here) or a word that only may end a sentence.
             if punc == "." {
                 let next = String(text[matchRange.upperBound...].prefix(40))
                 let combined = beforePunc.trimmingCharacters(in: .whitespaces) + punc
                 if SentenceBoundaryPolicy.continuesAcrossBoundary(combined, into: next)
+                    || SentenceBoundaryPolicy.endsInReferenceWord(combined)
                     || mayEndASentence.contains(where: { combined.hasSuffix($0) })
                 {
                     continue

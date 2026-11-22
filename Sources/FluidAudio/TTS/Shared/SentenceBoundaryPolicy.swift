@@ -71,6 +71,15 @@ public enum SentenceBoundaryPolicy {
         return !(before.hasSuffix(",") && before.first?.isUppercase == true)
     }
 
+    /// Whether `text` ends in a reference word read before a number (`Nr.`,
+    /// `p.`, `Fig.`), in any language's table. A voice that reads text whose
+    /// numbers are already words asks this, since no digit follows.
+    public static func endsInReferenceWord(_ text: String) -> Bool {
+        guard let lastWord = text.split(whereSeparator: \.isWhitespace).last else { return false }
+        let token = String(lastWord.reversed().prefix { $0.isLetter || $0 == "." }.reversed())
+        return beforeNumber.contains(token) || LanguageAbbreviations.beforeNumber.contains(token)
+    }
+
     private static let titles = Set(EnglishAbbreviationTable.spokenForms(in: .title).keys.map { $0 + "." })
     private static let beforeNumber = Set(referenceWords.map { $0 + "." })
 

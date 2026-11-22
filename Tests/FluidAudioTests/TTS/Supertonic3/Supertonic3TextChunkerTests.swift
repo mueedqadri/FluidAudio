@@ -55,6 +55,8 @@ final class Supertonic3TextChunkerTests: XCTestCase {
         for (lang, sentence) in [
             ("fr", "La Chèvre de M. Seguin est un conte d'Alphonse Daudet."),
             ("de", "Die Bremer Stadtmusikanten sind Märchen Nr. 27 der Brüder Grimm."),
+            ("de", "Die Bremer Stadtmusikanten sind Märchen Nr. siebenundzwanzig der Brüder Grimm."),
+            ("it", "La citazione viene da Rendina, duemilasette, p. trecentoventisei del libro."),
             ("es", "El Sr. García llegó tarde a casa aquella noche de invierno."),
             ("en", "It was written by J. Smith in the spring of that year."),
         ] {
