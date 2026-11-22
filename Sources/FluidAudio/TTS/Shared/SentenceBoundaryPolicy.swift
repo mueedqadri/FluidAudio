@@ -1,9 +1,10 @@
 import Foundation
 
-/// Where an English sentence ends for narration: whether a sentence tokenizer's
-/// boundary after an abbreviation is real. Built on the frontend's own table
-/// (`EnglishAbbreviationTable`), so the app that cuts sentences and the voice
-/// that reads them agree about every title, initial and reference word.
+/// Where a sentence ends for narration: whether a sentence tokenizer's boundary
+/// after an abbreviation is real. Built on the frontend's own tables
+/// (`EnglishAbbreviationTable`, `LanguageAbbreviations`), so the app that cuts
+/// sentences and the voice that reads them agree about every title, initial and
+/// reference word.
 public enum SentenceBoundaryPolicy {
     /// Reference words read before a number (`Fig`, `pp`, `Art`), without their period.
     public static let referenceWords = Set(EnglishAbbreviationTable.spokenForms(in: .beforeNumber).keys)
@@ -15,6 +16,7 @@ public enum SentenceBoundaryPolicy {
         let lists = [
             titles, EnglishAbbreviationTable.neverEndASentence, EnglishAbbreviationTable.placePrefixes,
             EnglishAbbreviationTable.sentenceOpeners, beforeNumber,
+            LanguageAbbreviations.titles, LanguageAbbreviations.neverEndASentence, LanguageAbbreviations.beforeNumber,
         ].map { $0.sorted().joined(separator: ",") }
         var hash: UInt64 = 0xcbf2_9ce4_8422_2325
         for byte in lists.joined(separator: "|").utf8 {
@@ -40,11 +42,20 @@ public enum SentenceBoundaryPolicy {
 
         // Only leading wrappers go (`(Mr.`, `“Mr.`): the period and the case make the title.
         let token = String(lastWord.drop(while: \.isPunctuation))
-        if titles.contains(token) || EnglishAbbreviationTable.neverEndASentence.contains(token) { return true }
+        let lastTwo = words.suffix(2).joined(separator: " ")
+        if titles.contains(token) || EnglishAbbreviationTable.neverEndASentence.contains(token)
+            || LanguageAbbreviations.titles.contains(token)
+            || LanguageAbbreviations.neverEndASentence.contains(token)
+            || LanguageAbbreviations.neverEndASentence.contains(lastTwo)
+        {
+            return true
+        }
 
         let following = next.trimmingCharacters(in: .whitespacesAndNewlines).drop { $0 == "(" }
         guard let first = following.first else { return false }
         let nextWord = openingWord(of: following)
+        // Another language's reference word only before a number: `S.` is also an initial.
+        if LanguageAbbreviations.beforeNumber.contains(token), first.isNumber { return true }
         if beforeNumber.contains(token) { return first.isNumber }
         if EnglishAbbreviationTable.placePrefixes.contains(token) {
             guard first.isUppercase else { return false }

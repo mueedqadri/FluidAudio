@@ -51,6 +51,20 @@ final class Supertonic3TextChunkerTests: XCTestCase {
         XCTAssertEqual(chunks, ["One. Two. Three. Four."])
     }
 
+    func testPiecesNeverSplitAfterATitleOrReferenceWord() {
+        for (lang, sentence) in [
+            ("fr", "La Chèvre de M. Seguin est un conte d'Alphonse Daudet."),
+            ("de", "Die Bremer Stadtmusikanten sind Märchen Nr. 27 der Brüder Grimm."),
+            ("es", "El Sr. García llegó tarde a casa aquella noche de invierno."),
+            ("en", "It was written by J. Smith in the spring of that year."),
+        ] {
+            let chunks = Supertonic3TextChunker.chunk(
+                text: sentence + " " + sentence, lang: lang,
+                maxTokens: Supertonic3TextChunker.encodedLength(of: sentence, lang: lang))
+            XCTAssertEqual(chunks, [sentence, sentence], lang)
+        }
+    }
+
     func testLongSentencesSplitAtSentenceBoundaries() {
         let a = String(repeating: "a", count: 60) + "."
         let b = String(repeating: "b", count: 60) + "."

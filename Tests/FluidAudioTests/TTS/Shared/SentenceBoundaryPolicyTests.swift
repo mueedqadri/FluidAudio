@@ -31,6 +31,22 @@ final class SentenceBoundaryPolicyTests: XCTestCase {
         XCTAssertFalse(continues("↑ Zemskov V. N.", "On repatriation of Soviet citizens."))
     }
 
+    func testOtherLanguagesTitlesAndReferenceWordsContinue() {
+        XCTAssertTrue(continues("La Chèvre de M.", "Seguin, d'Alphonse Daudet."))
+        XCTAssertTrue(continues("Kinder- und Hausmärchen Nr.", "27, aus den Kinder- und Hausmärchen."))
+        XCTAssertTrue(continues("Steht auf S.", "145 im ersten Band."))
+        XCTAssertTrue(continues("Das gilt z. B.", "für Esel."))
+        XCTAssertTrue(continues("Llegó el Sr.", "García a las tres."))
+        XCTAssertTrue(continues("Lo dice en la pág.", "12 del libro."))
+        XCTAssertTrue(continues("Arrivò il Sig.", "Rossi con la moglie."))
+        XCTAssertTrue(continues("Frutas, p. ej.", "manzanas."))
+    }
+
+    func testAnotherLanguagesReferenceWordStaysAnInitial() {
+        XCTAssertTrue(continues("Composed by J. S.", "Bach in Leipzig."))
+        XCTAssertFalse(continues("Er wohnt in Nr.", "Dann zog er um."))
+    }
+
     func testReferenceWordsComeFromTheTable() {
         XCTAssertTrue(SentenceBoundaryPolicy.referenceWords.isSuperset(of: ["Fig", "pp", "secs", "Art", "Para", "Pt", "Op"]))
     }

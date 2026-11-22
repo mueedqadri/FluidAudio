@@ -57,10 +57,11 @@ import Foundation
 /// no per-script table to keep in sync.
 enum Supertonic3TextChunker {
 
-    private static let abbreviations: [String] = [
-        "Dr.", "Mr.", "Mrs.", "Ms.", "Prof.", "Sr.", "Jr.",
-        "St.", "Ave.", "Rd.", "Blvd.", "Dept.", "Inc.", "Ltd.",
-        "Co.", "Corp.", "etc.", "vs.", "i.e.", "e.g.", "Ph.D.",
+    /// Abbreviations that end a sentence as often as not (`etc.`, `Inc.`): the
+    /// app's cut may end one there, but a piece is not split there, since a seam
+    /// mid-sentence costs more than a longer piece.
+    private static let mayEndASentence: [String] = [
+        "Jr.", "Ave.", "Rd.", "Blvd.", "Dept.", "Inc.", "Ltd.", "Co.", "Corp.", "etc.", "Ph.D.",
     ]
 
     /// Terminators followed by whitespace: Latin, plus the Devanagari danda
@@ -324,10 +325,16 @@ enum Supertonic3TextChunker {
             else { continue }
             let punc = String(text[puncRange])
 
-            // Only Latin terminators can be abbreviation-final ("Dr.", "e.g.").
-            if ".!?".contains(punc) {
+            // Only a period can end an abbreviation. The app's sentence cut asks the same
+            // table; a piece also never splits after a word that only may end a sentence.
+            if punc == "." {
+                let next = String(text[matchRange.upperBound...].prefix(40))
                 let combined = beforePunc.trimmingCharacters(in: .whitespaces) + punc
-                if abbreviations.contains(where: { combined.hasSuffix($0) }) { continue }
+                if SentenceBoundaryPolicy.continuesAcrossBoundary(combined, into: next)
+                    || mayEndASentence.contains(where: { combined.hasSuffix($0) })
+                {
+                    continue
+                }
             }
 
             sentences.append(String(text[lastEnd..<matchRange.upperBound]))
