@@ -10,6 +10,7 @@ final class SentenceBoundaryPolicyTests: XCTestCase {
 
     func testTitlesLatinAndReferenceWordsContinue() {
         XCTAssertTrue(continues("It was Mr.", "Gatsby who called."))
+        XCTAssertTrue(continues("said Elizabeth drily--“Mr.", "Darcy is kind."))
         XCTAssertTrue(continues("As shown, cf.", "Table 2."))
         XCTAssertTrue(continues("See Fig.", "3 for it."))
         XCTAssertFalse(continues("See the Fig.", "It grew."))

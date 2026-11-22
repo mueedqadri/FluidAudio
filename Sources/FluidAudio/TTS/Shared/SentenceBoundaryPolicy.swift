@@ -40,8 +40,8 @@ public enum SentenceBoundaryPolicy {
         let words = text.trimmingCharacters(in: .whitespacesAndNewlines).split(whereSeparator: \.isWhitespace)
         guard let lastWord = words.last else { return false }
 
-        // Only leading wrappers go (`(Mr.`, `“Mr.`): the period and the case make the title.
-        let token = String(lastWord.drop(while: \.isPunctuation))
+        // Only what leads it goes (`(Mr.`, `“Mr.`, `drily--“Mr.`): the period and the case make the title.
+        let token = String(lastWord.reversed().prefix { $0.isLetter || $0 == "." }.reversed())
         let lastTwo = words.suffix(2).joined(separator: " ")
         if titles.contains(token) || EnglishAbbreviationTable.neverEndASentence.contains(token)
             || LanguageAbbreviations.titles.contains(token)
