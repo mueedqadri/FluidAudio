@@ -19,6 +19,23 @@ final class HindiTextNormalizerTests: XCTestCase {
         XCTAssertEqual(spoken("१२वीं कक्षा"), "बारहवीं कक्षा")
     }
 
+    func testYearsReadInHundredsWhateverSurroundsThem() {
+        XCTAssertEqual(spoken("१७७९ में"), "सत्रह सौ उनासी में")
+        XCTAssertEqual(spoken("1926 ई. में"), "उन्नीस सौ छब्बीस ईसवी में")
+        XCTAssertEqual(spoken("15 अगस्त 1947 को"), "पन्द्रह अगस्त उन्नीस सौ सैंतालीस को")
+        XCTAssertEqual(spoken("सन् 2012 में"), "सन् दो हज़ार बारह में")
+    }
+
+    func testEnglishWordsBesideNumbersStayAsWritten() {
+        XCTAssertEqual(spoken("coenzyme के 2 अणु"), "coenzyme के दो अणु")
+        XCTAssertEqual(spoken("CO2 गैस"), "CO दो गैस")
+    }
+
+    func testCodesReadDigitByDigit() {
+        XCTAssertEqual(spoken("फ़ोन 9876543210"), "फ़ोन नौ आठ सात छह पाँच चार तीन दो एक शून्य")
+        XCTAssertEqual(spoken("पिन 0123"), "पिन शून्य एक दो तीन")
+    }
+
     func testGroupedDigitsReadAsOneNumber() {
         XCTAssertEqual(spoken("1,00,000 लोग"), "एक लाख लोग")
         XCTAssertEqual(spoken("१,००,००० लोग"), "एक लाख लोग")
@@ -48,7 +65,7 @@ final class HindiTextNormalizerTests: XCTestCase {
     }
 
     func testSignsTheVoiceCannotReadBecomeLettersItCan() {
-        XCTAssertEqual(spoken("॥१॥ ॐ नमः"), "। एक। ओम नमः")
+        XCTAssertEqual(spoken("॥१॥ ॐ नमः"), "। एक।  ओम नमः")
         XCTAssertEqual(spoken("ऋषि ऋतु"), "रिषि रितु")
         XCTAssertEqual(spoken("सोऽहम्"), "सोहम्")
         XCTAssertEqual(spoken("बॅट"), "बैट")
