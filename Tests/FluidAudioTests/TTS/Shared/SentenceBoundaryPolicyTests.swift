@@ -55,7 +55,6 @@ final class SentenceBoundaryPolicyTests: XCTestCase {
         XCTAssertTrue(continues("Große Ausgabe, 7.", "Auflage, Göttingen."))
         XCTAssertTrue(continues("die Straße des 17.", "Juni führt zum Tor."))
         XCTAssertTrue(continues("Hertha BSC und der 1.", "FC Union Berlin."))
-        XCTAssertTrue(continues("Berlin ist die 13.", "größte Stadt."))
     }
 
     func testANumberAtTheEndOfASentenceStillEndsIt() {
@@ -63,6 +62,10 @@ final class SentenceBoundaryPolicyTests: XCTestCase {
         XCTAssertFalse(continues("Die A 103 kreuzt die A 111.", "Die Brücke ist alt."))
         XCTAssertFalse(continues("I was then 13.", "The year after, I left."))
         XCTAssertFalse(continues("I am 13.", "The year after, I left."))
+        XCTAssertFalse(continues("among the states; 3.", "Maintenance of harmony."))
+        XCTAssertFalse(continues("of extinct species, 329.", "of organic beings, 411."))
+        XCTAssertFalse(continues("Desjardins, t. 1l, p. 40 et 382.", "Julien Vinson est plus circonspect."))
+        XCTAssertFalse(continues("l’aire de développement des 1.", "Mortillet (A. de), p. 82."))
     }
 
     func testReferenceWordsComeFromTheTable() {

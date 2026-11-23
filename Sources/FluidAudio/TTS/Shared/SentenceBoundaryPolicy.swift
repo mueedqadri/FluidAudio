@@ -17,7 +17,7 @@ public enum SentenceBoundaryPolicy {
             titles, EnglishAbbreviationTable.neverEndASentence, EnglishAbbreviationTable.placePrefixes,
             EnglishAbbreviationTable.sentenceOpeners, beforeNumber,
             LanguageAbbreviations.titles, LanguageAbbreviations.neverEndASentence, LanguageAbbreviations.beforeNumber,
-            LanguageAbbreviations.ordinalLeads, Set(LanguageAbbreviations.ordinalNouns),
+            LanguageAbbreviations.ordinalLeads, LanguageAbbreviations.ordinalMonths, Set(LanguageAbbreviations.ordinalNouns),
         ].map { $0.sorted().joined(separator: ",") }
         var hash: UInt64 = 0xcbf2_9ce4_8422_2325
         for byte in lists.joined(separator: "|").utf8 {
@@ -57,7 +57,8 @@ public enum SentenceBoundaryPolicy {
         let nextWord = openingWord(of: following)
         if isOrdinal(lastWord) {
             let lead = words.dropLast().last.map { $0.lowercased().filter(\.isLetter) }
-            return lead.map(LanguageAbbreviations.ordinalLeads.contains) == true || first.isLowercase
+            return lead.map(LanguageAbbreviations.ordinalLeads.contains) == true
+                || nextWord.map(LanguageAbbreviations.ordinalMonths.contains) == true
                 || LanguageAbbreviations.ordinalNouns.contains { following.hasPrefix($0) }
         }
         // Another language's reference word only before a number: `S.` is also an initial.

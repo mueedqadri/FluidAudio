@@ -47,13 +47,16 @@ enum LanguageAbbreviations {
 
     /// German writes an ordinal as a number and a period (`im 13. Jahrhundert`,
     /// `am 3. Oktober`). The sentence goes on after one when the word before it
-    /// is one of these, lower-cased. Not `am`, which English has too (`I am 13.`);
-    /// a date after it is caught by its month.
-    static let ordinalLeads: Set<String> = ["im", "vom", "zum", "beim", "dem", "den", "der", "des", "ins", "ans"]
+    /// is one of these, lower-cased. Not `am`, which English has too (`I am 13.`),
+    /// nor `des`, which French has; their dates are caught by the next word.
+    static let ordinalLeads: Set<String> = ["im", "vom", "zum", "beim", "dem", "den", "der", "ins", "ans"]
 
-    /// …or when the next word starts with one of these.
-    static let ordinalNouns: [String] = [
+    /// …or when the next word is a month…
+    static let ordinalMonths: Set<String> = [
         "Januar", "Jänner", "Februar", "März", "April", "Mai", "Juni", "Juli", "August",
-        "September", "Oktober", "November", "Dezember", "Jahrhundert", "Jahrtausend", "Auflage",
+        "September", "Oktober", "November", "Dezember",
     ]
+
+    /// …or starts with one of these (`Jahrhunderts`, `Auflage`).
+    static let ordinalNouns: [String] = ["Jahrhundert", "Jahrtausend", "Auflage"]
 }
