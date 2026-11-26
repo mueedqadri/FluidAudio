@@ -535,6 +535,40 @@ final class KokoroAneEnglishPhonemizerTests: XCTestCase {
         XCTAssertEqual(result, "həlˈO, wˈɜɹld!")
     }
 
+    private func makeQuotingPhonemizer() -> KokoroAneEnglishPhonemizer {
+        KokoroAneEnglishPhonemizer(
+            wordToPhonemes: lexicon, caseSensitiveWordToPhonemes: caseSensitive,
+            allowedPunctuation: punctuation.union(["“", "”", "(", ")", "—"]))
+    }
+
+    func testOpeningQuoteJoinsTheWordItOpens() async throws {
+        let phonemizer = makeQuotingPhonemizer()
+        let line = try await phonemizer.phonemize("“Hello, world!”") { _ in nil }
+        XCTAssertEqual(line, "“həlˈO, wˈɜɹld!”")
+        let midLine = try await phonemizer.phonemize("hello “world,” go") { _ in nil }
+        XCTAssertEqual(midLine, "həlˈO “wˈɜɹld,” ɡˈO")
+        let stacked = try await phonemizer.phonemize("go (“hello”)") { _ in nil }
+        XCTAssertEqual(stacked, "ɡˈO (“həlˈO”)")
+    }
+
+    func testOpeningQuoteLeadsItsWordSegment() async throws {
+        let segments = try await makeQuotingPhonemizer().phonemizeSegments("“Hello world") { _ in nil }
+        XCTAssertEqual(segments.map(\.word), ["Hello", "world"])
+        XCTAssertEqual(segments.map(\.phonemes), ["“həlˈO", "wˈɜɹld"])
+    }
+
+    func testMarksBetweenSpacesStayWithTheWordBefore() async throws {
+        let phonemizer = makeQuotingPhonemizer()
+        let dash = try await phonemizer.phonemize("hello — world") { _ in nil }
+        XCTAssertEqual(dash, "həlˈO— wˈɜɹld")
+        let closing = try await phonemizer.phonemize("hello ”") { _ in nil }
+        XCTAssertEqual(closing, "həlˈO”")
+        let joined = try await phonemizer.phonemize("“Hello—world") { _ in nil }
+        XCTAssertEqual(joined, "“həlˈO— wˈɜɹld")
+        let oddlySpaced = try await phonemizer.phonemize("hello ,world (go )(hello") { _ in nil }
+        XCTAssertEqual(oddlySpaced, "həlˈO, wˈɜɹld (ɡˈO)( həlˈO")
+    }
+
     func testUnsupportedPunctuationIsDropped() async throws {
         // '#' is not in the chain vocab → dropped, no stray space.
         let result = try await makePhonemizer().phonemize("hello # world") { _ in nil }

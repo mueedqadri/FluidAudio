@@ -413,7 +413,7 @@ public actor KokoroAneManager {
     /// out-of-vocab silently dropped; a single space between segments → its own
     /// token when the vocab maps space), we recover each segment's token range
     /// and sum its frames. Frame offsets convert to seconds via the chunk's
-    /// audio duration. Segments with an empty `word` (leading punctuation) or
+    /// audio duration. Segments with an empty `word` (punctuation with no word to join) or
     /// zero spoken tokens are skipped — they aren't words to highlight.
     static func wordTimings(
         segments: [KokoroAneEnglishPhonemizer.PhonemeSegment],

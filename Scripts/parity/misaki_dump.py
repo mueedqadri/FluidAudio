@@ -2,7 +2,7 @@
 """Dump canonical Misaki per-token phonemes for a corpus as JSONL.
 
 Same shape as `fluidaudiocli phonemize-parity`:
-  {"i": n, "text": line, "words": [{"word": ..., "phonemes": ...}]}
+  {"i": n, "text": line, "phonemes": line_ps, "words": [{"word": ..., "phonemes": ...}]}
 
 Setup:
   uv venv --python 3.12 ~/misaki-parity
@@ -34,7 +34,7 @@ def main() -> None:
             line = raw.strip()
             if not line:
                 continue
-            _, tokens = g2p(line)
+            ps, tokens = g2p(line)
             words = []
             for t in tokens:
                 phonemes = t.phonemes
@@ -42,7 +42,7 @@ def main() -> None:
                     phonemes = f"<OOV:{t.text}>"
                 words.append({"word": t.text, "phonemes": phonemes})
             total += len(words)
-            out.write(json.dumps({"i": i, "text": line, "words": words}, ensure_ascii=False) + "\n")
+            out.write(json.dumps({"i": i, "text": line, "phonemes": ps, "words": words}, ensure_ascii=False) + "\n")
 
     print(f"misaki_dump: wrote {total} tokens to {args.output}")
 

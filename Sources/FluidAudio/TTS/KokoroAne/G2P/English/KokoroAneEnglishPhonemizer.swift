@@ -84,17 +84,17 @@ struct KokoroAneEnglishPhonemizer: Sendable {
 
     /// One resolved word and the IPA it produced. Kept punctuation is appended
     /// to the preceding word's `phonemes` (matching the flat-string shape), so
-    /// a segment's `phonemes` may carry a trailing prosody/pause token. A
-    /// leading punctuation run with no preceding word yields a segment with an
-    /// empty `word`.
+    /// a segment's `phonemes` may carry a trailing prosody/pause token; an
+    /// opening mark leads the next word's. Punctuation with no word to join
+    /// yields a segment with an empty `word`.
     struct PhonemeSegment: Sendable, Equatable {
         let word: String
         var phonemes: String
     }
 
     /// Convert text to a Misaki-style IPA string. Words are joined with
-    /// single spaces; kept punctuation attaches to the preceding word
-    /// (`"Hello, world!"` → `"həlˈO, wˈɜɹld!"` shape).
+    /// single spaces; kept punctuation attaches to the preceding word, an
+    /// opening mark to the next (`"“Hello, world!”"` → `"“həlˈO, wˈɜɹld!”"`).
     ///
     /// - Parameter fallback: per-word G2P for words missing from every
     ///   lexicon. Receives the normalized (lower-cased) spelling. `nil`
@@ -158,16 +158,19 @@ struct KokoroAneEnglishPhonemizer: Sendable {
         }
 
         var segments: [PhonemeSegment] = []
+        var opening = ""
         for (index, entry) in tokens.enumerated() {
             guard let ipa = resolved[index] else { continue }
             let token = entry.token
 
             // Punctuation token (single non-word char from the splitter).
-            // Attach to the preceding word — Kokoro's vocab encodes
-            // punctuation as its own prosody token, but Misaki output
-            // never puts a space before it.
-            if token.count == 1, let ch = token.first, !ch.isLetter, !ch.isNumber {
-                if segments.isEmpty {
+            // Kokoro's vocab encodes punctuation as its own prosody token, and
+            // Misaki spaces it as the source does: an opening mark (`“`, `(`)
+            // joins the word after it, anything else the word before.
+            if Self.isPunctuation(token) {
+                if !opening.isEmpty || Self.opensWord(at: index, in: tokens) {
+                    opening += ipa
+                } else if segments.isEmpty {
                     segments.append(PhonemeSegment(word: "", phonemes: ipa))
                 } else {
                     segments[segments.count - 1].phonemes.append(ipa)
@@ -175,7 +178,15 @@ struct KokoroAneEnglishPhonemizer: Sendable {
                 continue
             }
 
-            segments.append(PhonemeSegment(word: token, phonemes: ipa))
+            segments.append(PhonemeSegment(word: token, phonemes: opening + ipa))
+            opening = ""
+        }
+        if !opening.isEmpty {
+            if segments.isEmpty {
+                segments.append(PhonemeSegment(word: "", phonemes: opening))
+            } else {
+                segments[segments.count - 1].phonemes.append(opening)
+            }
         }
 
         // Kokoro was trained on Misaki's final output alphabet: the tap and
@@ -188,6 +199,34 @@ struct KokoroAneEnglishPhonemizer: Sendable {
         }
 
         return segments
+    }
+
+    private static func isPunctuation(_ token: String) -> Bool {
+        token.count == 1 && token.first.map { !$0.isLetter && !$0.isNumber } == true
+    }
+
+    /// Marks that only ever close or separate, so they stay with the word before
+    /// however the source is spaced (`fropi ;such`).
+    private static let closingMarks: Set<Character> = [",", ".", ";", ":", "!", "?", ")", "]", "}", "”", "’", "»"]
+
+    /// A mark that can open (`“`, `(`, `"`, `—`) after a space or at the start,
+    /// running through more such marks and no space into a word: `“She`, `(“Yes`.
+    private static func opensWord(
+        at index: Int, in tokens: [(token: String, range: Range<String.Index>)]
+    ) -> Bool {
+        guard index == 0 || tokens[index - 1].range.upperBound < tokens[index].range.lowerBound else {
+            return false
+        }
+        var next = index
+        while next < tokens.count {
+            guard isPunctuation(tokens[next].token) else { return true }
+            guard let mark = tokens[next].token.first, !closingMarks.contains(mark) else { return false }
+            next += 1
+            guard next < tokens.count, tokens[next - 1].range.upperBound == tokens[next].range.lowerBound else {
+                return false
+            }
+        }
+        return false
     }
 
     // MARK: - PDF ligature repair
